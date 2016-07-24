@@ -220,7 +220,8 @@ handle_info({_, {cec,{_,Src,_,_,_}} = M}, #state{devs=Devs} = State) ->
     D2 = update_dev(M, D),
     {noreply,State#state{devs = [D2 | Devs2]}};
 handle_info(M, State) ->
-    io:format("unknown message: ~w~n", [M]).
+    io:format("unknown message: ~w~n", [M]),
+    {noreply,State}.
 
 handle_keypress(Pid, Key) ->
     Pid ! {keypress,self(),Key}.
