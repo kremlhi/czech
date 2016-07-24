@@ -187,42 +187,42 @@ handle_cast(Req, #state{mod=Mod, laddr=LAddr} = State) ->
 
 -spec handle_info({port(),{'data',_}},state()) ->
                          {'noreply',state()}.
-handle_info({_,{cec,{[],_,_,?CEC_GIVE_DEVICE_VENDOR_ID,[]}}},
+handle_info({_, {cec,{[],_,_,?CEC_GIVE_DEVICE_VENDOR_ID,[]}}},
             #state{mod=Mod, laddr=LAddr, vendor=VendorId} = State) ->
     int_send(Mod, LAddr, {device_vendor_id,VendorId}),
     {noreply,State};
-handle_info({_,{cec,{[],_Src,_,?CEC_VENDOR_COMMAND_WITH_ID,_Params}}},
+handle_info({_, {cec,{[],_Src,_,?CEC_VENDOR_COMMAND_WITH_ID,_Params}}},
             #state{mod=Mod, laddr=LAddr} = State) ->
     %% VendorId = list_to_binary(lists:sublist(Params, 3)),
     %% int_send(Mod, LAddr, {vendor_command,Src,
     %%                     id_to_commands(VendorId)}),
     {noreply,State};
-handle_info({_,{cec,{[],_,_,?CEC_USER_CONTROL_PRESSED,[<<Key>>]}}},
+handle_info({_, {cec,{[],_,_,?CEC_USER_CONTROL_PRESSED,[<<Key>>]}}},
             #state{subs=Subs} = State) ->
     _ = [handle_keypress(Pid, keycode(Key)) || Pid <- Subs],
     {noreply,State};
-handle_info({_,{cec,{[],_,_,?CEC_USER_CONTROL_RELEASE,[]}}},
+handle_info({_, {cec,{[],_,_,?CEC_USER_CONTROL_RELEASE,[]}}},
             #state{subs=Subs} = State) ->
     _ = [handle_keyrel(Pid) || Pid <- Subs],
     {noreply,State};
-handle_info({_,{cec,{[],_,_,Op,[<<M:1,Volume:7>>]}}},
+handle_info({_, {cec,{[],_,_,Op,[<<M:1,Volume:7>>]}}},
             #state{subs=Subs} = State)
   when Op =:= ?CEC_REPORT_AUDIO_STATUS ->
     Mute = M =:= 1,
-%%    io:format("handle_volume(~w, ~w, ~w)~n", [Pid, Mute, Volume]),
     _ = [handle_volume(Pid, Mute, Volume) || Pid <- Subs],
     {noreply,State};
-handle_info({_,{cec,_,Src,_,_,_} = M}, #state{devs=Devs} = State) ->
+handle_info({_, {cec,{_,Src,_,_,_}} = M}, #state{devs=Devs} = State) ->
     case lists:keytake(Src, #dev.laddr, Devs) of
         {value,D,Devs2} -> ok;
         false -> D     = #dev{laddr=Src},
                  Devs2 = Devs
     end,
     D2 = update_dev(M, D),
-    {noreply,State#state{devs = [D2 | Devs2]}}.
+    {noreply,State#state{devs = [D2 | Devs2]}};
+handle_info(M, State) ->
+    io:format("unknown message: ~w~n", [M]).
 
 handle_keypress(Pid, Key) ->
-%%    io:format("handle_keypress(~w, ~w)~n", [Pid, Key]),
     Pid ! {keypress,self(),Key}.
 
 handle_keyrel(Pid) ->
