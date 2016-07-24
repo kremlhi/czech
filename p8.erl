@@ -1,195 +1,232 @@
 -module(p8).
 -behaviour(gen_server).
 
--export([start_link/0, stop/0, subscribe/1, send/1, recv/0, recv/1]).
+-export([start_link/0, start_link/1, stop/0, subscribe/1]).
+
 -export([ping/0, get_firmware_vsn/0, get_builddate/0,
          get_adapter_type/0, set_controlled/1, set_ack_mask/2,
          set_active_source/1, get_auto_enabled/0, get_hdmi_vsn/0,
          get_def_laddr/0, get_dev_type/0, get_laddr_mask/0, get_osd_name/0,
          get_paddr/0]).
 
+-export([cec_send/3, cec_send/4, cec_send/5]).
+
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          code_change/3, terminate/2]).
 
--export([send_cmd/1, send_cmd/2, send_cmd_get/1, send_cmd_set/2]).
-
 -define(SERVER, ?MODULE).
 -define(LOG_FILE, ?MODULE_STRING".log").
+
+%% ping the adapter every 25 seconds, if it doesn't receive any ping
+%% for 30 seconds, it'll switch to auto mode
 -define(PING_INTERVAL, 25000).
 
 -include("p8.hrl").
 
--record(state, {debug    = true  :: boolean(),
-                port             :: port(),
-                subs     = []    :: [pid()],
-                recvbuf  = <<>>  :: binary(),
-                recept   = []    :: [{pid(),reference(),integer()}],
-                mbox     = [],
-                ping             :: ping | pong}).
+-record(p8, {fd                 :: port(),
+             timeout = infinity :: infinity | integer(),
+             subs    = []       :: [pid()]}).
 
--type state() :: #state{}.
+-type state() :: #p8{}.
 
 %%====================================================================
 %% API
 %%====================================================================
 
 start_link() ->
+    start_link([]).
+
+start_link(Opts) ->
     %% gen_server:start_link({local,?SERVER}, ?MODULE, [],
                           %% [{debug,[trace,{log_to_file,?LOG_FILE}]}]).
-    gen_server:start_link({local,?SERVER}, ?MODULE, [], [{debug,[trace]}]).
+    gen_server:start_link({local,?SERVER}, ?MODULE, Opts, []).
 
 stop() ->
     gen_server:stop(?SERVER).
 
-subscribe(Pid) ->
-    gen_server:cast(?SERVER, {subscribe,Pid}).
+subscribe(Pid) -> gen_server:cast(?SERVER, {subscribe,Pid}).
 
-send(Msg) ->
-    gen_server:call(?SERVER, {send,Msg}).
+ping() -> gen_server:call(?SERVER, {ping}).
 
-recv() -> recv(infinity).
+get_firmware_vsn() -> gen_server:call(?SERVER, {get_firmware_vsn}).
+get_builddate()    -> gen_server:call(?SERVER, {get_builddate}).
+get_adapter_type() -> gen_server:call(?SERVER, {get_adapter_type}).
+get_auto_enabled() -> gen_server:call(?SERVER, {get_auto_enabled}).
+get_hdmi_vsn()     -> gen_server:call(?SERVER, {get_hdmi_vsn}).
+get_def_laddr()    -> gen_server:call(?SERVER, {get_def_laddr}).
+get_dev_type()     -> gen_server:call(?SERVER, {get_dev_type}).
+get_laddr_mask()   -> gen_server:call(?SERVER, {get_laddr_mask}).
+get_osd_name()     -> gen_server:call(?SERVER, {get_osd_name}).
+get_paddr()        -> gen_server:call(?SERVER, {get_paddr}).
 
-recv(Time) ->
-    case async_recv(Time) of
-        {ok,Tag} ->
-            receive
-                {p8_async,_Pid,Tag,Status} ->
-                    Status;
-                {'EXIT',_Pid,_Reason} ->
-                    {error,closed}
-            end;
-        {error,Reason} ->
-            {error,Reason}
-    end.
+set_controlled(Mode) -> gen_server:call(?SERVER, {set_controlled,Mode}).
+set_ack_mask(X, Y)   -> gen_server:call(?SERVER, {set_ack_mask,X,Y}).
+set_active_source(X) -> gen_server:call(?SERVER, {set_active_source,X}).
 
-ping() -> send_cmd(?P8_CMD_PING).
+cec_send(Flags, Src, Dest) ->
+    Req = {cec_send,Flags,Src,Dest},
+    gen_server:call(?SERVER, Req).
 
-get_firmware_vsn() ->
-    <<Vsn:16>> = send_cmd_get(?P8_CMD_FIRMWARE_VSN),
-    Vsn.
+cec_send(Flags, Src, Dest, Op) ->
+    Req = {cec_send,Flags,Src,Dest,Op},
+    gen_server:call(?SERVER, Req).
 
-get_builddate() ->
-    <<BDate:32>> = send_cmd_get(?P8_CMD_GET_BUILDDATE),
-    BDate.
-
-get_adapter_type() ->
-    <<Type>> = send_cmd_get(?P8_CMD_GET_ADAPTER_TYPE),
-    Type.
-
-set_controlled(Mode) ->
-    send_cmd_set(?P8_CMD_SET_CONTROLLED, <<Mode>>).
-
-set_ack_mask(V1, V2) ->
-    send_cmd_set(?P8_CMD_SET_ACK_MASK, <<V1,V2>>).
-
-set_active_source(X) ->
-    send_cmd_set(?P8_CMD_SET_ACTIVE_SOURCE, <<X>>).
-
-get_auto_enabled() ->
-    case send_cmd_get(?P8_CMD_GET_AUTO_ENABLED) of
-        <<0>> -> false;
-        <<1>> -> true
-    end.
-
-get_hdmi_vsn() ->
-    <<Vsn>> = send_cmd_get(?P8_CMD_GET_HDMI_VSN),
-    Vsn.
-
-get_def_laddr() ->
-    <<LAddr>> = send_cmd_get(?P8_CMD_GET_DEF_LADDR),
-    LAddr.
-
-get_dev_type() ->
-    <<Type>> = send_cmd_get(?P8_CMD_GET_DEV_TYPE),
-    Type.
-
-get_laddr_mask() ->
-    <<V1,V2>> = send_cmd_get(?P8_CMD_GET_LADDR_MASK),
-    <<V1,V2>>. %% I.e. <<9,16>>
-
-get_osd_name() ->
-    <<Name/binary>> = send_cmd_get(?P8_CMD_GET_OSD_NAME),
-    Name.
-
-get_paddr() ->
-    <<A,B>> = send_cmd_get(?P8_CMD_GET_PADDR),
-    <<A,B>>. % I.e. <<16,0>>
+cec_send(Flags, Src, Dest, Op, Params) ->
+    Req = {cec_send,Flags,Src,Dest,Op,Params},
+    gen_server:call(?SERVER, Req).
 
 %%====================================================================
 %% gen_server callbacks
 %%====================================================================
 
-init(_Args) ->
+init(Opts) ->
     process_flag(trap_exit, true),
-%%    ok = error_logger:logfile({open,"p8-err.log"}),
-%%    error_logger:tty(false),
-    ExtPrg = "./p8adpt",
-    Dev = "/dev/cu.usbmodemv2_r1",
-    Port = open_port({spawn_executable,ExtPrg},
-                     [{args,[Dev]}, {packet,2}, binary]),
-    receive X -> X
-    after 1000 -> ok  %flush the pipe
+    case proplists:get_value(debug, Opts) of
+        true ->
+            S = undefined;
+        _ ->
+            ExtPrg = "./echo",
+            Dev = "/dev/cu.usbmodemv2_r1",
+            S = init_port(ExtPrg, Dev)
     end,
-    erlang:send_after(?PING_INTERVAL, self(), ping),
-    {ok,#state{port=Port}}.
+    {ok,#p8{fd=S}}.
 
--spec handle_call(_,From,state()) -> {reply,term(),state()}
-                                         when From :: {pid(),reference()}.
+init_port(ExtPrg, Dev) ->
+    S = open_port({spawn_executable,ExtPrg},
+                  [{args,[Dev]}, {packet,2}, binary]),
+    receive _ -> ok
+    after 500 -> ok  %flush the pipe
+    end,
+    erlang:send_after(0, self(), ping),
+    S.
+
 %% TODO: resend?
-%% TODO: delay ping?
-handle_call({send,Msg}, _, #state{debug=Debug, port=Port} = State) ->
-    p8_pretty:print(Debug, "==> ", [Msg]),
-    try
-        port_command(Port, p8_packet:encode([Msg])),
-        {reply,ok,State}
-    catch
-        error:Reason -> {reply,{error,Reason},State}
-    end;
-handle_call({async_recv,_}, {Pid,Tag}, #state{mbox=[H | Mbox]} = State) ->
-    send_async(Pid, Tag, H),
-    {reply,{ok,Tag},State#state{mbox=Mbox}};
-handle_call({async_recv,Time}, {Pid,Tag}, #state{recept=Rs} = State) ->
-    TRef = if Time =:= infinity -> undefined;
-              true -> erlang:start_timer(Time, self(), async_recv)
-           end,
-    R = {Pid,Tag,Time,TRef},
-    {reply,{ok,Tag},State#state{recept=Rs ++ [R]}}.
+handle_call({ping}, _, #p8{fd=S} = State) ->
+    R = handle_cmd(S, State, {cmd,?P8_CMD_PING}),
+    {reply,R,State};
+handle_call({get_firmware_vsn}, _, #p8{fd=S} = State) ->
+    Req = {cmd_get,?P8_CMD_FIRMWARE_VSN},
+    R = case handle_cmd_get(S, State, Req) of
+            <<Vsn:16>> ->
+                Vsn;
+            {error,Reason} ->
+                {error,Reason}
+        end,
+    {reply,R,State};
+handle_call({get_builddate}, _, #p8{fd=S} = State) ->
+    Req = {cmd_get,?P8_CMD_GET_BUILDDATE},
+    R = case handle_cmd_get(S, State, Req) of
+        <<Date:32>> ->
+                Date;
+        {error,Reason} ->
+                {error,Reason}
+        end,
+    {reply,R,State};
+handle_call({get_adapter_type}, _, #p8{fd=S} = State) ->
+    Req = {cmd_get,?P8_CMD_GET_ADAPTER_TYPE},
+    R = case handle_cmd_get(S, State, Req) of
+            <<Type>> ->
+                Type;
+            {error,Reason} ->
+                {error,Reason}
+        end,
+    {reply,R,State};
+handle_call({get_auto_enabled}, _, #p8{fd=S} = State) ->
+    Req = {cmd_get,?P8_CMD_GET_AUTO_ENABLED},
+    R = case handle_cmd_get(S, State, Req) of
+            <<0>> ->
+                false;
+            <<1>> ->
+                true;
+            {error,Reason} ->
+                {error,Reason}
+        end,
+    {reply,R,State};
+handle_call({get_hdmi_vsn}, _, #p8{fd=S} = State) ->
+    Req = {cmd_get,?P8_CMD_GET_HDMI_VSN},
+    R = case handle_cmd_get(S, State, Req) of
+            <<Vsn>> ->
+                Vsn;
+            {error,Reason} ->
+                {error,Reason}
+        end,
+    {reply,R,State};
+handle_call({get_def_laddr}, _, #p8{fd=S} = State) ->
+    Req = {cmd_get,?P8_CMD_GET_DEF_LADDR},
+    R = case handle_cmd_get(S, State, Req) of
+            <<LAddr>> ->
+                LAddr;
+            {error,Reason} ->
+                {error,Reason}
+        end,
+    {reply,R,State};
+handle_call({get_dev_type}, _, #p8{fd=S} = State) ->
+    Req = {cmd_get,?P8_CMD_GET_DEV_TYPE},
+    R = case handle_cmd_get(S, State, Req) of
+            <<Type>> ->
+                Type;
+            {error,Reason} ->
+                {error,Reason}
+        end,
+    {reply,R,State};
+handle_call({get_laddr_mask}, _, #p8{fd=S} = State) ->
+    Req = {cmd_get,?P8_CMD_GET_LADDR_MASK},
+    R = handle_cmd_get(S, State, Req),
+    {reply,R,State};
+handle_call({get_osd_name}, _, #p8{fd=S} = State) ->
+    Req = {cmd_get,?P8_CMD_GET_OSD_NAME},
+    R = handle_cmd_get(S, State, Req),
+    {reply,R,State};
+handle_call({get_paddr}, _, #p8{fd=S} = State) ->
+    Req = {cmd_get,?P8_CMD_GET_PADDR},
+    R = handle_cmd_get(S, State, Req),
+    {reply,R,State};
+handle_call({set_controlled,Mode}, _, #p8{fd=S} = State) ->
+    Req = {cmd_set,?P8_CMD_SET_CONTROLLED,<<Mode>>},
+    R = handle_cmd_set(S, State, Req),
+    {reply,R,State};
+handle_call({set_ack_mask,X,Y}, _, #p8{fd=S} = State) ->
+    Req = {cmd_set,?P8_CMD_SET_ACK_MASK,<<X,Y>>},
+    R = handle_cmd_set(S, State, Req),
+    {reply,R,State};
+handle_call({set_active_source,X}, _, #p8{fd=S} = State) ->
+    Req = {cmd_set,?P8_CMD_SET_ACTIVE_SOURCE,<<X>>},
+    R = handle_cmd_set(S, State, Req),
+    {reply,R,State};
+handle_call({cec_send,Flags,Src,Dest}, _, #p8{fd=S} = State) ->
+    M = {cec_send,Flags,Src,Dest,undefined,[]},
+    Res = handle_cec_send(S, State, M),
+    {reply,Res,State};
+handle_call({cec_send,Flags,Src,Dest,Op}, _, #p8{fd=S} = State) ->
+    M = {cec_send,Flags,Src,Dest,Op,[]},
+    Res = handle_cec_send(S, State, M),
+    {reply,Res,State};
+handle_call({cec_send,_,_,_,_,_} = M, _, #p8{fd=S} = State) ->
+    Res = handle_cec_send(S, State, M),
+    {reply,Res,State}.
 
 -spec handle_cast(_,state()) -> {'noreply',state()}.
-handle_cast({subscribe,Pid}, #state{subs = Subs} = State) ->
-    {noreply,State#state{subs=lists:usort([Pid | Subs])}};
+handle_cast({subscribe,Pid}, #p8{subs = Subs} = State) ->
+    {noreply,State#p8{subs=lists:usort([Pid | Subs])}};
 handle_cast(_Req, State) ->
     {noreply,State}.
 
 -spec handle_info({port(),{'data',_}},state()) ->
                          {'noreply',state()}.
-%% ping the adapter every 25 seconds, if it doesn't receive any ping
-%% for 30 seconds, it'll switch to auto mode
-handle_info(ping, #state{port=Port} = State) ->
-    port_command(Port, p8_packet:encode([#cmd{op=?P8_CMD_PING}])),
+handle_info(ping, #p8{fd=S} = State) ->
+    handle_cmd(S, State ,{cmd,?P8_CMD_PING}),
     erlang:send_after(?PING_INTERVAL, self(), ping, []),
-    {noreply,State#state{ping=ping}};
-handle_info({timeout,TRef,async_recv}, #state{recept=Rs} = State) ->
-    case lists:keytake(TRef, 4, Rs) of
-        {value,{Pid,Tag,_,_},Rs2} ->
-            send_async(Pid, Tag, {error,timeout});
-        false -> % response already sent while timeout message was in inqueue
-            Rs2 = Rs
-    end,
-    {noreply,State#state{recept=Rs2}};
-handle_info({Port,{data,Data}},
-            #state{debug   = Debug,
-                   port    = Port,
-                   recvbuf = Rbuf,
-                   recept  = Rs,
-                   subs    = Subs,
-                   mbox    = Mbox,
-                   ping    = Ping} = State) ->
-    {L,Rbuf2} = p8_packet:decode(<<Rbuf/binary,Data/binary>>),
-    p8_pretty:print(Debug, "<== ", Mbox ++ L),
-    {Mbox2,Rs2,Ping2} = send_while(Mbox ++ L, Rs, Subs, Ping),
-    {noreply,State#state{recvbuf=Rbuf2, recept=Rs2, mbox=Mbox2, ping=Ping2}};
-handle_info({'EXIT',Port,Reason}, #state{port=Port} = State) ->
+    {noreply,State};
+handle_info({S, {data,B}}, #p8{fd   = S,
+                               subs = Subs} = State) ->
+    io:format("<<< ~w~n", [B]),
+    {[M],<<>>} = p8_packet:decode(B),
+    p8_pretty:print("<<< ", [M]),
+    #ind_rx{src=Src, dest=Dest, op=Op, params=Params} = M,
+    M2 = {cec,[],Src,Dest,Op,Params},
+    _ = [notify(Pid, M2) || Pid <- Subs], % TODO: change to gen_event
+    {noreply,State};
+handle_info({'EXIT',S,Reason}, #p8{fd=S} = State) ->
     {stop, {port_terminated,Reason}, State}.
 
 -spec code_change(_,_,_) -> {'ok',_}.
@@ -199,49 +236,111 @@ code_change(_OldVsn, State, _Extra) ->
 -spec terminate(_,state()) -> no_return().
 terminate({port_terminated,_Reason}, _) ->
     ok;
-terminate(_Reason, #state{port=Port}) ->
-    port_close(Port).
+terminate(_Reason, #p8{fd=S}) ->
+    port_close(S).
 
 %%====================================================================
 %% Internal functions
 %%====================================================================
 
-send_while([#ind_ack{op=?P8_CMD_PING} | Ms], Rs, Subs, ping) ->
-    send_while(Ms, Rs, Subs, pong);
-send_while([#ind_rx{} = Msg | Ms], Rs, Subs, Pong) ->
-    _ = [send_unsol(Pid, Msg) || Pid <- Subs],
-    send_while(Ms, Rs, Subs, Pong);
-send_while([Msg | Ms], [{Pid,Tag,_,TRef} | Rs], Subs, Pong) ->
-    send_async(Pid, Tag, Msg),
-    if TRef =:= undefined -> ok;
-       true -> erlang:cancel_timer(TRef, [{async,true}, {info,false}])
-    end,
-    send_while(Ms, Rs, Subs, Pong);
-send_while(Ms, Rs, _, Pong) ->
-    {Ms,Rs,Pong}.
+notify(Pid, Msg) ->
+    Pid ! {self(),Msg}.
 
-send_unsol(Pid, Msg) ->
-    Pid ! {unsol,self(),Msg}.
+handle_cec_send(S, State, {cec_send,Flags,Src,Dest,Op,Params}) ->
+    Req = #cmd_tx{flags=Flags,
+                  src=Src, dest=Dest,
+                  op=Op, params=Params},
+    [Op2 | Exp] = ack_ops(Req),
+    case request(S, State, Req) of
+        #ind_ack{ack=Ack, op=Op2} ->
+            cec_recv_rest(S, State, Exp, Ack);
+        {error,Reason} ->
+            {error,Reason}
+    end.
 
-send_async(Pid, Tag, Msg) ->
-    Pid ! {p8_async,self(),Tag,Msg}.
+ack_ops(#cmd_tx{flags=Flags, op=Op, params=Params}) ->
+    F = [p8_packet:cmd_tx_atoi_flag(X) || {X,_} <- Flags],
+    O = [?P8_CMD_TX || X <- [Op], X =/= undefined],
+    P = [?P8_CMD_TX || _ <- Params],
+    S = [?P8_CMD_TX_EOM], %src/dest
+    F ++ O ++ P ++ S.
 
--spec async_recv(integer()) -> {ok,reference()} | {error,term()}.
-async_recv(Time) -> gen_server:call(?SERVER, {async_recv,Time}).
+cec_recv_rest(S, State, [], ok) ->
+    case recv_response(S, State) of
+        #ind_tx_ack{ack=ok} ->
+            ok;
+        #ind_tx_ack{ack=Nack} ->
+            {error,Nack};
+        {error,Reason} ->
+            {error,Reason}
+    end;
+cec_recv_rest(_, _, [], Nack) ->
+    {error,Nack};
+cec_recv_rest(S, State, [Op | T], Result) ->
+    case recv_response(S, State) of
+        #ind_ack{ack=ok, op=Op} ->
+            cec_recv_rest(S, State, T, Result);
+        #ind_ack{ack=Ack, op=Op} ->
+            cec_recv_rest(S, State, T, Ack)
+    end.
 
-send_cmd(Op) -> send_cmd(Op, 500).
+handle_cmd(S, State, {cmd,Op}) ->
+    case request(S, State, #cmd{op=Op}) of
+        #ind_ack{ack=ok, op=Op} ->
+            ok;
+        #ind_ack{ack=Nack, op=Op} ->
+            {error,Nack};
+        {error,Reason} ->
+            {error,Reason}
+    end.
 
-send_cmd(Op, Time) ->
-    send(#cmd{op = Op}),
-    #ind_ack{ack = Resp, op = Op} = recv(Time),
-    Resp.
+handle_cmd_get(S, State, {cmd_get,Key}) ->
+    case request(S, State, #cmd{op=Key}) of
+        #cmd{op=Key, param=V} ->
+            V;
+        {error,Reason} ->
+            {error,Reason}
+    end.
 
-send_cmd_get(Op) ->
-    send(#cmd{op = Op}),
-    #cmd{op = Op, param = Param} = recv(500),
-    Param.
+handle_cmd_set(S, State, {cmd_set,Key,V}) ->
+    case request(S, State, #cmd{op=Key, param=V}) of
+        #ind_ack{ack=ok, op=Key} ->
+            ok;
+        #ind_ack{ack=Nack, op=Key} ->
+            {error,Nack};
+        {error,Reason} ->
+            {error,Reason}
+    end.
 
-send_cmd_set(Op, Param) ->
-    send(#cmd{op = Op, param = Param}),
-    #ind_ack{ack = Resp, op = Op} = recv(500),
-    Resp.
+request(S, State, Req) ->
+    send_request(S, State, Req),
+    recv_response(S, State).
+
+send_request(S, State, M) ->
+    p8_pretty:print("==> ", [M]),
+    do_send(S, State, p8_packet:encode([M])).
+
+do_send(S, _, B) ->
+    io:format("==> ~w~n", [B]),
+    port_command(S, B).
+
+recv_response(S, State) ->
+    case do_recv(S, State, 0) of
+        {ok,B} ->
+            {[M],<<>>} = p8_packet:decode(B),
+            p8_pretty:print("<== ", [M]),
+            M;
+        {error,Reason} ->
+            {error,Reason}
+    end.
+
+do_recv(S, #p8{timeout=T}, _Len) ->
+    receive
+        {S, {data,B}} ->
+            io:format("<== ~w~n", [B]),
+            {ok,B};
+        {'EXIT',S,Reason} -> % FIXME: should be handled by handle_info/2?
+            {error,Reason}
+    after T ->
+            {error,timeout}
+    end.

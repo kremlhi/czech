@@ -3,7 +3,8 @@ ESRC	= $(wildcard *.erl)
 ELISP	= $(wildcard *.el)
 BEAMS	= $(ESRC:.erl=.beam)
 ELC	= $(ELISP:.el=.elc)
-AOUT	= p8adpt
+SRC	= $(wildcard *.c)
+AOUT	= $(SRC:.c=)
 ERLC	= erlc
 EMACS	= emacs
 
@@ -13,9 +14,9 @@ EMACS	= emacs
 %.elc: %.el
 	$(EMACS) -batch -f batch-byte-compile $<
 
-all: $(AOUT) $(BEAMS)
+%: %.c
 
-$(AOUT): $(AOUT).c
+all: $(AOUT) $(BEAMS)
 
 dialyze:
 	dialyzer -Wunderspecs --src .

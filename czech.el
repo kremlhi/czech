@@ -7,10 +7,10 @@
 
 (require 'emms-player-vlc)
 
-(defun client-start ()
+(defun czech-start ()
   (emms)
   (erl-spawn
-    (erl-send-rpc (erl-target-node) 'cec 'subscribe (list erl-self))
+    (erl-send-rpc (erl-target-node) 'czech 'subscribe (list erl-self))
     (erl-receive ()
         ((['rex ['badrpc reason]]
           (message "Bad RPC: %s" reason))
@@ -18,7 +18,7 @@
           (progn (message "result %s" result)
                  (client-loop)))))))
 
-(defun client-loop ()
+(defun czech-loop ()
   (erl-receive ()
       ((['keypress pid key]
         (client-handle-keypress key))
@@ -29,8 +29,7 @@
        (other (message "cecmsg %S" other)))
     (client-loop)))
 
-(defun client-handle-keyrel ()
-  t)
+(defun client-handle-keyrel () t)
 
 (defun client-handle-volume (mute vol)
   (message "volume %s%%%s" vol

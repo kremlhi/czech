@@ -5,15 +5,12 @@
                  dest :: 0..15,
                  op :: byte(),
                  params = [] :: [binary()]}).
--record(ind_ack, {ack :: ok | {error,nack},
+-record(ind_ack, {ack :: ok | nack,
                   op :: 0..63}).
 -record(ind_err, {type :: timeout | high | low,
                     param = <<>> :: binary()}).
 -record(ind_tx_ack, {ack :: ok |
-                            {error,tx_nack} |
-                            {error,fail_line} |
-                            {error,timeout_d} |
-                            {error,timeout_l}}).
+                            tx_nack | fail_line | timeout_d | timeout_l}).
 -record(ind_rx, {ack :: 0 | 1,
                  src :: 0..15,
                  dest :: 0..15,

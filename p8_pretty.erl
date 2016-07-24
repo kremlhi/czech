@@ -6,7 +6,7 @@
 -define(mwhen(X), ?X -> ??X).
 -define(mwhen2(X, Y), ?X when Y -> ??X).
 
--export([print/1, print/3, pretty/1]).
+-export([print/1, print/2, pretty/1]).
 
 pretty(L) ->
     [lists:flatten(pretty2(X)) || X <- L].
@@ -41,11 +41,9 @@ pretty2(Unexp) ->
     io_lib:format("unknown ~p", [Unexp]).
 
 print(L) ->
-    print(true, "", L).
+    print("", L).
 
-print(false, _, _) ->
-    ok;
-print(_, Prefix, L) ->
+print(Prefix, L) ->
     _ = [io:format("~s~s~n",[Prefix, X]) || X <- pretty(L)],
     ok.
 

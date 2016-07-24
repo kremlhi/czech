@@ -46,10 +46,10 @@ ind_err_ttoi(X) ->
 ind_tx_ack_ttoi(X) ->
     case X of
         ok -> ?P8_IND_TX_ACK;
-        {error,tx_nack} -> ?P8_IND_TX_NACK;
-        {error,fail_line} -> ?P8_IND_TX_FAIL_LINE;
-        {error,timeout_d} -> ?P8_IND_TX_TIMEOUT_D;
-        {error,timeout_l} -> ?P8_IND_TX_TIMEOUT_L
+        tx_nack -> ?P8_IND_TX_NACK;
+        fail_line -> ?P8_IND_TX_FAIL_LINE;
+        timeout_d -> ?P8_IND_TX_TIMEOUT_D;
+        timeout_l -> ?P8_IND_TX_TIMEOUT_L
     end.
 
 ind_ack_encode(Ack, Op) ->
@@ -94,8 +94,7 @@ ind_rx_enc_end(Ack, B) ->
     <<?BEG,Eom:1,Ack:1,?P8_IND_RX_NEXT:6,B/binary,?END>>.
 
 cmd_tx_encode(Flags, Src, Dest, Op, Params) ->
-    {value,F,Flags2} = lists:keytake(ack_p, 1, Flags),
-    B1 = cmd_tx_enc_flags(Flags2 ++ [F]),
+    B1 = cmd_tx_enc_flags(Flags),
     B2 = cmd_tx_enc_addr(Src, Dest, Op, Params),
     <<B1/binary,B2/binary>>.
 
@@ -204,7 +203,7 @@ decode1(<<?BEG,B0/binary>> = B) ->
 ind_ack_itot(X) ->
     case X of
         ?P8_IND_ACK -> ok;
-        ?P8_IND_NACK -> {error,nack}
+        ?P8_IND_NACK -> nack
     end.
 
 ind_err_itot(X) ->
@@ -217,10 +216,10 @@ ind_err_itot(X) ->
 ind_tx_ack_itot(X) ->
     case X of
         ?P8_IND_TX_ACK -> ok;
-        ?P8_IND_TX_NACK -> {error,tx_nack};
-        ?P8_IND_TX_FAIL_LINE -> {error,fail_line};
-        ?P8_IND_TX_TIMEOUT_D -> {error,timeout_d};
-        ?P8_IND_TX_TIMEOUT_L -> {error,timeout_l}
+        ?P8_IND_TX_NACK -> tx_nack;
+        ?P8_IND_TX_FAIL_LINE -> fail_line;
+        ?P8_IND_TX_TIMEOUT_D -> timeout_d;
+        ?P8_IND_TX_TIMEOUT_L -> timeout_l
     end.
 
 

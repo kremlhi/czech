@@ -2,16 +2,15 @@
 -behaviour(gen_server).
 
 -include("czech.hrl").
--include("p8.hrl").
 
--export([start_link/1, stop/0, subscribe/1]).
+-export([start_link/1, start_link/2, stop/0, subscribe/1]).
 -export([active_source/1, device_vendor_id/1, give_osd_name/1,
          give_device_power_status/1, give_device_vendor_id/1,
          get_menu_language/1, image_view_on/1, menu_status/2,
          report_physical_address/1, request_active_source/0,
          standby/1, set_osd_name/2, set_osd_string/3,
          vendor_command/2]).
--export([engage/0, probe/0, send_cmd_tx/2]).
+-export([engage/0, probe/0, spawn_sub/0]).
 -compile(export_all).
 
 %% Callbacks
@@ -22,10 +21,6 @@
 
 -define(SERVER, ?MODULE).
 -define(LOG_FILE, ?MODULE_STRING".log").
-
--type laddr() :: 0..14.
--type src() :: laddr() | ?LADDR_UNREG.
--type dest() :: laddr() | ?LADDR_BROADCAST.
 
 %% #state{p8 = <0.147.0>,adpttype = 1,laddr = 8,paddr = 4,
 %%        lmask = <<16,0>>,
@@ -60,15 +55,27 @@
 
 -type dev() :: #dev{}.
 
+-type laddr() :: 0..14.
+-type src() :: laddr() | ?LADDR_UNREG.
+-type dest() :: laddr() | ?LADDR_BROADCAST.
+
+-type flag() :: {idle,integer()} | {timeout,integer()} | {ack_p,integer()}.
+-type op() :: integer().
+-type param() :: binary().
+
+-type cec() :: {cec,{[flag()],src(),dest(),op(),[param()]}}.
+
 %%====================================================================
 %% API
 %%====================================================================
 
-start_link(Mod) ->
+start_link(Mod) -> start_link(Mod, []).
+
+start_link(Mod, Opts) ->
     %% gen_server:start_link({local,?SERVER}, ?MODULE, [Mod],
     %%                       [{timeout,5000},
     %%                        {debug,[trace,{log_to_file,?LOG_FILE}]}]).
-    gen_server:start_link({local,?SERVER}, ?MODULE, [Mod],
+    gen_server:start_link({local,?SERVER}, ?MODULE, [Mod | Opts],
                           [{timeout,10000}, {debug,[trace]}]).
 
 
@@ -129,10 +136,15 @@ vendor_command(Dest, Commands) ->
 %% gen_server callbacks
 %%====================================================================
 
-init([Mod]) ->
+init([Mod | Opts]) ->
 %%    ok = error_logger:logfile({open,?MODULE_STRING"-err.log"}),
 %%    {ok,_Pid} = Mod:start_link(self()),
-    [AdptType, LAddr, LMask] = open(Mod),
+    case proplists:get_value(debug, Opts) of
+        true ->
+            [AdptType, LAddr, LMask] = [2, 8, <<1,2,3>>];
+        _ ->
+            [AdptType, LAddr, LMask] = open(Mod)
+    end,
 %%    int_engage(Mod, LAddr, LMask),
     {ok,#state{mod      = Mod,
                adpttype = AdptType,
@@ -151,6 +163,8 @@ int_engage(Mod, LAddr, LMask) ->
     int_send(Mod, LAddr, {active_source,LMask}).
 
 -spec handle_cast(_,state()) -> {'noreply',state()}.
+handle_cast({subscribe,Pid}, #state{subs=Subs} = State) ->
+    {noreply,State#state{subs=[Pid | Subs]}};
 handle_cast({engage}, #state{mod=Mod, laddr=LAddr, lmask=LMask} = State) ->
     int_engage(Mod, LAddr, LMask),
     {noreply,State};
@@ -173,34 +187,32 @@ handle_cast(Req, #state{mod=Mod, laddr=LAddr} = State) ->
 
 -spec handle_info({port(),{'data',_}},state()) ->
                          {'noreply',state()}.
-handle_info({unsol,_,#ind_rx{op=?CEC_GIVE_DEVICE_VENDOR_ID}},
+handle_info({_,{cec,{[],_,_,?CEC_GIVE_DEVICE_VENDOR_ID,[]}}},
             #state{mod=Mod, laddr=LAddr, vendor=VendorId} = State) ->
     int_send(Mod, LAddr, {device_vendor_id,VendorId}),
     {noreply,State};
-handle_info({unsol,_,#ind_rx{op=?CEC_VENDOR_COMMAND_WITH_ID, src=Src,
-                            params=Params}},
+handle_info({_,{cec,{[],_Src,_,?CEC_VENDOR_COMMAND_WITH_ID,_Params}}},
             #state{mod=Mod, laddr=LAddr} = State) ->
-    VendorId = list_to_binary(lists:sublist(Params, 3)),
+    %% VendorId = list_to_binary(lists:sublist(Params, 3)),
     %% int_send(Mod, LAddr, {vendor_command,Src,
     %%                     id_to_commands(VendorId)}),
     {noreply,State};
-handle_info({unsol,_,#ind_rx{op=?CEC_USER_CONTROL_PRESSED, params=[<<Key>>]}},
+handle_info({_,{cec,{[],_,_,?CEC_USER_CONTROL_PRESSED,[<<Key>>]}}},
             #state{subs=Subs} = State) ->
     _ = [handle_keypress(Pid, keycode(Key)) || Pid <- Subs],
     {noreply,State};
-handle_info({unsol,_,#ind_rx{op=?CEC_USER_CONTROL_RELEASE}},
+handle_info({_,{cec,{[],_,_,?CEC_USER_CONTROL_RELEASE,[]}}},
             #state{subs=Subs} = State) ->
-%%    io:format("handle_keyrel(~w)~n", [Pid]),
     _ = [handle_keyrel(Pid) || Pid <- Subs],
     {noreply,State};
-handle_info({unsol,_,#ind_rx{op=Op, params=[<<M:1,Volume:7>>]}},
+handle_info({_,{cec,{[],_,_,Op,[<<M:1,Volume:7>>]}}},
             #state{subs=Subs} = State)
   when Op =:= ?CEC_REPORT_AUDIO_STATUS ->
     Mute = M =:= 1,
 %%    io:format("handle_volume(~w, ~w, ~w)~n", [Pid, Mute, Volume]),
     _ = [handle_volume(Pid, Mute, Volume) || Pid <- Subs],
     {noreply,State};
-handle_info({unsol,_,#ind_rx{src=Src} = M}, #state{devs=Devs} = State) ->
+handle_info({_,{cec,_,Src,_,_,_} = M}, #state{devs=Devs} = State) ->
     case lists:keytake(Src, #dev.laddr, Devs) of
         {value,D,Devs2} -> ok;
         false -> D     = #dev{laddr=Src},
@@ -267,19 +279,23 @@ terminate(Reason, #state{mod=Mod}) ->
 
 -spec polling_message(module(), laddr()) -> 'ok'.
 polling_message(Mod, LAddr) ->
-    send_cmd_tx(Mod, #cmd_tx{src=LAddr, dest=LAddr}).
+    Mod:cec_send([], LAddr, LAddr).
 
 -spec set_idle(module(), src(), dest(), integer()) -> 'ok'.
 set_idle(Mod, Src, Dest, Time) ->
-    send_cmd_tx(Mod, #cmd_tx{flags=[{idle,Time}], src=Src, dest=Dest}).
+    Mod:cec_send([{idle,Time}], Src, Dest).
 
 -spec set_timeout(module(), src(), dest(), integer()) -> 'ok'.
 set_timeout(Mod, Src, Dest, Time) ->
-    send_cmd_tx(Mod, #cmd_tx{flags=[{timeout,Time}], src=Src, dest=Dest}).
+    Mod:cec_send([{timeout,Time}], Src, Dest).
 
--spec int_send(module(), src(), cmd_tx()) -> 'ok'.
+-spec int_send(module(), src(), tuple()) -> 'ok' | {'error',any()}.
 int_send(Mod, Src, Req) ->
-    send_cmd_tx(Mod, int(Req, #cmd_tx{src=Src})).
+    {cec,{Flags,Src,Dest,Op,Params}} = encode(Src, Req),
+    Bc = if Dest =:= ?LADDR_BROADCAST -> 1;
+            true -> 0
+         end,
+    Mod:cec_send(Flags ++ [{ack_p,Bc}], Src, Dest, Op, Params).
 
 -spec set_laddr(module()) -> laddr().
 set_laddr(Mod) ->
@@ -314,20 +330,6 @@ req_settings(Mod) ->
     LMask = Mod:get_paddr(),
     [LMask].
 
-open2() ->
-    Mod = p8,
-    check_adapter(Mod),
-    Mod:subscribe(self()),
-    AdptType = Mod:get_adapter_type(),
-    ok = set_idle(Mod, ?LADDR_UNREG, ?LADDR_TV, 3),
-%% polling_message(p8,8),
-%% polling_message(p8,8),
-    set_laddr(Mod),
-ok.
-%%    LAddr = set_laddr(Mod),
-%%    [AdptType, LAddr].
-
-
 
 %% bool CUSBCECAdapterCommunication::Open(
 %%   uint32_t iTimeoutMs /* = CEC_DEFAULT_CONNECT_TIMEOUT */,
@@ -358,11 +360,10 @@ open(Mod) ->
 close(Mod) ->
     ok = Mod:set_ack_mask(0, 0),
     ok = Mod:set_controlled(0),
-    Mod:recv(500), %empty message queue
     ok.
 
 
-update_dev(#ind_rx{op=Op, params=Params} = M, Dev) ->
+update_dev({cec,{_,_,_,Op,Params}} = M, Dev) ->
     case Op of
         ?CEC_REPORT_POWER_STATUS ->
             Dev#dev{power=Params =:= [<<0>>]};
@@ -402,24 +403,20 @@ id_to_commands(Id) ->
         _ -> [] %Dunno
     end.
 
+-spec encode(src(), tuple()) -> cec().
 
-int({request_active_source}, R) ->
-    R#cmd_tx{dest=?LADDR_BROADCAST,
-             op=?CEC_REQUEST_ACTIVE_SOURCE};
-
-int({active_source,PAddr}, R) ->
-    R#cmd_tx{dest=?LADDR_BROADCAST,
-             op=?CEC_ACTIVE_SOURCE,
-             params=[<<X>> || <<X>> <= PAddr]};
-int({device_vendor_id,VendorId}, R) ->
-    R#cmd_tx{dest=?LADDR_BROADCAST,
-             op=?CEC_DEVICE_VENDOR_ID,
-             params=[<<X>> || <<X>> <= VendorId]};
-int({report_physical_address,Addr}, R) ->
-    R#cmd_tx{dest=?LADDR_BROADCAST,
-             op=?CEC_REPORT_PHYSICAL_ADDRESS,
-             params=[<<X>> || <<X>> <= Addr]};
-int({Cmd,Dest}, R) ->
+encode(Src, {request_active_source}) ->
+    {cec,{[],Src,?LADDR_BROADCAST,?CEC_REQUEST_ACTIVE_SOURCE}};
+encode(Src, {active_source,PAddr}) ->
+    Params = [<<X>> || <<X>> <= PAddr],
+    {cec,{[],Src,?LADDR_BROADCAST,?CEC_ACTIVE_SOURCE,Params}};
+encode(Src, {device_vendor_id,VendorId}) ->
+    Params = [<<X>> || <<X>> <= VendorId],
+    {cec,{[],Src,?LADDR_BROADCAST,?CEC_DEVICE_VENDOR_ID,Params}};
+encode(Src, {report_physical_address,Addr}) ->
+    Params = [<<X>> || <<X>> <= Addr],
+    {cec,{[],Src,?LADDR_BROADCAST,?CEC_REPORT_PHYSICAL_ADDRESS,Params}};
+encode(Src, {Cmd,Dest}) ->
     Op = case Cmd of
              get_menu_language        -> ?CEC_GET_MENU_LANGUAGE;
              give_audio_status        -> ?CEC_GIVE_AUDIO_STATUS;
@@ -430,27 +427,29 @@ int({Cmd,Dest}, R) ->
              image_view_on            -> ?CEC_IMAGE_VIEW_ON;
              standby                  -> ?CEC_STANDBY
          end,
-    R#cmd_tx{op=Op, dest=Dest};
-
-int({Cmd,Dest,Params}, R) ->
+    {cec,{[],Src,Dest,Op,[]}};
+encode(Src, {Cmd,Dest,Params}) ->
     case Cmd of
         give_deck_status ->
-            R#cmd_tx{op=?CEC_GIVE_DECK_STATUS, params=Params};
+            Op = ?CEC_GIVE_DECK_STATUS,
+            Params2 = Params;
         device_vendor_id ->
-            R#cmd_tx{op=?CEC_DEVICE_VENDOR_ID,
-                     params=[<<X>> || <<X>> <= Params]};
+            Op = ?CEC_DEVICE_VENDOR_ID,
+            Params2 = [<<X>> || <<X>> <= Params];
         menu_status ->
-            R#cmd_tx{op=?CEC_MENU_STATUS,
-                     params=if Params -> [<<0>>];
-                               true -> [<<1>>]
-                            end};
+            Op = ?CEC_MENU_STATUS,
+            Params2 = if Params -> [<<0>>];
+                         true -> [<<1>>]
+                      end;
         set_osd_name ->
-            R#cmd_tx{op=?CEC_SET_OSD_NAME,
-                     params=[<<X>> || <<X>> <= Params]};
+            Op = ?CEC_SET_OSD_NAME,
+            Params2 = [<<X>> || <<X>> <= Params];
         vendor_command ->
-            R#cmd_tx{op=?CEC_VENDOR_COMMAND, params=Params}
-    end#cmd_tx{dest=Dest};
-int({Cmd,Dest,Param1,Params}, R) ->
+            Op = ?CEC_VENDOR_COMMAND,
+            Params2 = Params
+    end,
+    {cec,{[],Src,Dest,Op,Params2}};
+encode(Src, {Cmd,Dest,Param1,Params}) ->
     case Cmd of
         set_osd_string ->
             Disp = case Param1 of
@@ -458,38 +457,19 @@ int({Cmd,Dest,Param1,Params}, R) ->
                        until_cleared -> <<16#40>>;
                        clear_prev    -> <<16#80>>
                    end,
+            Op = ?CEC_SET_OSD_STRING,
             B = <<Disp/binary,Params/binary>>,
-            R#cmd_tx{op=?CEC_SET_OSD_STRING,
-                    params=[<<X>> || <<X>> <= B]}
-    end#cmd_tx{dest=Dest}.
+            Params2 = [<<X>> || <<X>> <= B]
+    end,
+    {cec,{[],Src,Dest,Op,Params2}}.
 
 
-
-send_cmd_tx(Mod, #cmd_tx{flags=Flags, src=Src, dest=Dest,
-                         op=Op, params=Params}) ->
-    Bc = if Dest =:= ?LADDR_BROADCAST -> 1;
-            true -> 0
-         end,
-    Req = #cmd_tx{flags=Flags ++ [{ack_p,Bc}],
-                  src=Src, dest=Dest,
-                  op=Op, params=Params},
-    p8:send(Req),
-    wait_for_resp(Mod, Req).
-
-cmd_txs(N) when N > 0 ->
-    [?P8_CMD_TX || _ <- lists:seq(1, N - 1)] ++ [?P8_CMD_TX_EOM].
-
-flag_ops(N, Flags) ->
-    [p8_packet:cmd_tx_atoi_flag(X) || {X,_} <- Flags] ++ cmd_txs(N).
-
-wait_for_resp(Mod, #cmd_tx{flags=Flags, op=Op, params=Params}) ->
-    N = 1 % src/dest
-        + if Op =:= undefined -> 0;
-             true -> 1 + length(Params)
-          end,
-    Ops = flag_ops(N, Flags),
-    Rx1 = [Mod:recv(2000) || _ <- Ops],
-    Rx2 = [#ind_ack{ack=ok, op=X} || X <- Ops],
-%%    io:format("Rx1 ~s Rx2~n", [if Rx1=:=Rx2->"=:=";true->"=/="end]),
-    #ind_tx_ack{ack=Ack} = Mod:recv(2000),
-    Ack.
+spawn_sub() ->
+    F = fun (G)->
+                receive X ->
+                        io:format("got: ~w~n", [X])
+                end,
+                G(G)
+        end,
+    Pid = spawn_link(fun() -> F(F) end),
+    ?MODULE:subscribe(Pid).
