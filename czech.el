@@ -16,48 +16,60 @@
           (message "Bad RPC: %s" reason))
          (['rex result]
           (progn (message "result %s" result)
-                 (client-loop)))))))
+                 (czech-loop)))))))
 
 (defun czech-loop ()
   (erl-receive ()
       ((['keypress pid key]
-        (client-handle-keypress key))
+        (ignore-errors
+          (czech-handle-keypress key)))
        (['keyrel pid]
-        (client-handle-keyrel))
+        (czech-handle-keyrel))
        (['volume pid mute vol]
-        (client-handle-volume mute vol))
+        (czech-handle-volume mute vol))
        (other (message "cecmsg %S" other)))
-    (client-loop)))
+    (czech-loop)))
 
-(defun client-handle-keyrel () t)
+(defun czech-handle-keyrel () t)
 
-(defun client-handle-volume (mute vol)
+(defun czech-handle-volume (mute vol)
   (message "volume %s%%%s" vol
            (if (eq mute 'true) " [mute]"
              "")))
 
-(defun client-handle-keypress (key)
-  (with-current-buffer " *EMMS Playlist*"
-    (cond ((eq key 'enter) (emms-playlist-mode-play-smart))
+(defun czech-handle-keypress (key)
+  (with-selected-window (selected-window)
+    (cond ((eq key 'enter)
+           (progn
+             (setq czech-player-active t)
+             (emms-playlist-mode-play-smart)))
           ((eq key 'up) (forward-line -1))
           ((eq key 'down) (forward-line))
           ((eq key 'left) (emms-seek -10))
           ((eq key 'right) (emms-seek 10))
-          ((eq key 'cancel) (client-alt-tab))
+          ((eq key 'cancel) (czech-alt-tab))
           ((eq key 'ch_up) (forward-line -20))
           ((eq key 'ch_down) (forward-line 20))
           ((eq key 'volup) t)
           ((eq key 'voldown) t)
           ((eq key 'pause) (emms-pause))
-          ((eq key 'stop) (emms-stop))
-          ((eq key 'play) (emms-pause))
+          ((eq key 'stop)
+           (progn
+             (setq czech-player-active nil)
+             (emms-stop)))
+          ((eq key 'play)
+           (progn
+             (setq czech-player-active t)
+             (emms-pause)))
           ((eq key 'rew) (emms-seek -90))
           ((eq key 'ff) (emms-seek 90))
           ((eq key 'skip_next) (emms-next))
           ((eq key 'skip_prev) (emms-previous))
+          ((eq key 'd0) (delete-other-windows))
+          ((eq key 'd8) (message (format "%S" (current-buffer))))
+          ((eq key 'd9) (emms-playlist-mode-goto-dired-at-point))
           (t (message "key %s" key)))))
 
-;; (when (featurep 'ns)
 (defun ns-raise-vlc ()
   "Raise VLC."
   (ns-do-applescript "tell application \"VLC\" to activate"))
@@ -72,26 +84,18 @@
     (when (display-graphic-p)
       (ns-raise-emacs))))
 
-(defvar client-switch t)
-(defun client-alt-tab ()
-  (setq client-switch (not client-switch))
-  (if client-switch (progn (ns-raise-emacs) (emms))
-    (ns-raise-vlc)
-    client-switch))
-
-;; (defun client-go ()
-;;   (switch-to-buffer emms-playlist-buffer)
-;; ;;  (with-current-buffer emms-playlist-buffer
-;;     (next-line)
-;;     (next-line)
-;;     (next-line))
+(defvar czech-player-active t)
+(defun czech-alt-tab ()
+  (setq czech-player-active (not czech-player-active))
+  (if czech-player-active (ns-raise-vlc)
+     (progn (ns-raise-emacs) (emms))
+    czech-player-active))
 
 
 ;; (setq emms-source-file-default-directory "~/Music/")
 ;; 'M-x emms-add-directory-tree RET ~/Music/ RET'.
 
-
-;; ta bort mplayer
+;; modifications needed to enable emms to control VLC
 
 ;; emms-setup-default-player-list is a variable defined in
 ;; `emms-setup.el'.  Its value is (emms-player-mpg321

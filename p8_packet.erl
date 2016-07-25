@@ -288,8 +288,12 @@ ind_rx_decode(<<?BEG,_:1,Ack:1,?P8_IND_RX_START:6,_/binary>> = B) ->
     ind_rx_dec_addr(B, #ind_rx{ack = Ack}).
 
 ind_rx_dec_addr(<<?BEG,Eom:1,_Ack:1,?P8_IND_RX_START:6,Src:4,Dest:4,?END,
-                Rest/binary>>, #ind_rx{ack = Ack} = R) when Eom =:= 0 ->
-    ind_rx_dec_op(Rest, R#ind_rx{src = Src, dest = Dest}).
+                Rest/binary>>, #ind_rx{ack = Ack} = R) ->
+    if Eom =:= 1 ->
+            ind_rx_dec_end(Rest, R#ind_rx{src = Src, dest = Dest});
+       true ->
+            ind_rx_dec_op(Rest, R#ind_rx{src = Src, dest = Dest})
+    end.
 
 ind_rx_dec_op(<<?BEG,Eom:1,_Ack:1,?P8_IND_RX_NEXT:6,Op,?END,Rest/binary>>,
               #ind_rx{ack = Ack} = R) ->
