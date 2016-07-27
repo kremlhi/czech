@@ -13,10 +13,13 @@ start_link() ->
     supervisor:start_link({local,?SERVER}, ?MODULE, []).
 
 init(_Args) ->
-    Mod = p8,
-    Adpt = {Mod, {Mod,start_link,[]},
-            permanent, 1000, worker, [Mod]},
-    Czech = {czech, {czech,start_link,[Mod]},
-             permanent, 1000, worker, [czech]},
-    {ok, {{one_for_one,3,10},
-          [Adpt, Czech]}}.
+    Child = #{id       => czech,
+              start    => {czech,start_link,[]},
+              restart  => permanent,
+              shutdown => 1000,
+              type     => worker,
+              modules  => [czech]},
+    Flags = #{strategy  => one_for_one,
+              intensity => 1,
+              period    => 5},
+    {ok, {Flags,[Child]}}.
