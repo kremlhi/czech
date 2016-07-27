@@ -224,20 +224,20 @@ cmd_tx_decode(B) ->
 
 cmd_tx_dec_flags(<<?BEG,X,Y,?END,Rest/binary>> = B,
                  #cmd_tx{flags=Flags} = R) ->
-    F = case X of
-            ?P8_CMD_TX_SET_IDLE ->
-                R2 = R#cmd_tx{flags=[idle | Flags]},
-                cmd_tx_dec_flags(Rest, R2);
-            ?P8_CMD_TX_SET_ACK_P ->
-                R2 = R#cmd_tx{flags=[ack_p | Flags]},
-                cmd_tx_dec_flags(Rest, R2);
-            ?P8_CMD_TX_SET_TIMEOUT ->
-                R2 = R#cmd_tx{flags=[timeout | Flags]},
-                cmd_tx_dec_flags(Rest, R2);
-            _ ->
-                R2 = R#cmd_tx{flags=lists:reverse(Flags)},
-                cmd_tx_dec_addr(B, R2)
-        end,
+    case X of
+        ?P8_CMD_TX_SET_IDLE ->
+            R2 = R#cmd_tx{flags=[{idle,Y} | Flags]},
+            cmd_tx_dec_flags(Rest, R2);
+        ?P8_CMD_TX_SET_ACK_P ->
+            R2 = R#cmd_tx{flags=[{ack_p,Y} | Flags]},
+            cmd_tx_dec_flags(Rest, R2);
+        ?P8_CMD_TX_SET_TIMEOUT ->
+            R2 = R#cmd_tx{flags=[{timeout,Y} | Flags]},
+            cmd_tx_dec_flags(Rest, R2);
+        _ ->
+            R2 = R#cmd_tx{flags=lists:reverse(Flags)},
+            cmd_tx_dec_addr(B, R2)
+    end.
 
 cmd_tx_dec_addr(<<?BEG,X,Src:4,Dest:4,?END,Rest/binary>>, R) ->
     R2 = R#cmd_tx{src=Src, dest=Dest},
