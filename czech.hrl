@@ -1,12 +1,3 @@
-
-%% CEC_VERSION_UNKNOWN = 0x00,
-%% CEC_VERSION_1_2     = 0x01,
-%% CEC_VERSION_1_2A    = 0x02,
-%% CEC_VERSION_1_3     = 0x03,
-%% CEC_VERSION_1_3A    = 0x04,
-%% CEC_VERSION_1_4     = 0x05
-
-
 %% logical address to devices
 -define(LADDR_TV,         0).
 -define(LADDR_RECDEV1,    1).

@@ -10,7 +10,10 @@
 (defun czech-start ()
   (emms)
   (erl-spawn
-    (erl-send-rpc (erl-target-node) 'czech 'subscribe (list erl-self))
+    ;;(setq erl-trap-exit t)
+       (erl-send-rpc (erl-target-node) 'czech 'subscribe (list erl-self))
+    ;;    (erl-send (tuple 'czech (erl-target-node)) 'tja)
+;;    (erl-register 'emms)
     (erl-receive ()
         ((['rex ['badrpc reason]]
           (message "Bad RPC: %s" reason))

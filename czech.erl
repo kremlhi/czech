@@ -4,6 +4,7 @@
 -include("czech.hrl").
 
 -export([start_link/0, start_link/1, start_link/2, stop/0, subscribe/1]).
+-export([sub/0]).
 
 %% Callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -96,7 +97,7 @@ handle_call(_Req, _From, State) ->
 -spec handle_cast(_,state()) -> {'noreply',state()}.
 handle_cast({subscribe,Pid}, #state{subs=Subs} = State) ->
     link(Pid),
-    {noreply,State#state{subs=[Pid | Subs]}}.
+    {noreply,State#state{subs=lists:usort([Pid | Subs])}}.
 
 -spec handle_info({pid(),cec()},state()) ->
                          {'noreply',state()}.
@@ -272,3 +273,28 @@ info(#state{warn=F}, Fmt, L) when is_function(F, 2) ->
     F(Fmt, L);
 info(_, _, _) ->
     ok.
+
+sub() ->
+    F = fun(G)->
+                receive {'EXIT',Pid,Reason} ->
+                        io:format("~w got: ~w~n",[self(), {Pid,Reason}]),
+                        czech:subscribe(self());
+                        X->
+                        io:format("~w got: ~w~n",[self(), X]) 
+                end,
+                G(G)
+        end,
+    P = spawn(fun()->
+                      process_flag(trap_exit, true),
+                      czech:subscribe(self()),
+                      F(F)
+              end),
+    Sub = whereis(sub),
+    if Sub =:= undefined ->
+            ok;
+       true ->
+            exit(Sub, kill),
+            unregister(sub)
+    end,
+    register(sub, P),
+    P.
