@@ -101,20 +101,20 @@ handle_cast({subscribe,Pid}, #state{subs=Subs} = State) ->
 
 -spec handle_info({pid(),cec()},state()) ->
                          {'noreply',state()}.
-handle_info({_, {cec,{[],_,_,?CEC_USER_CONTROL_PRESSED,[<<Key>>]}}},
+handle_info({_, {cec,{_,_,_,?CEC_USER_CONTROL_PRESSED,[<<Key>>]}}},
             #state{subs=Subs} = State) ->
     _ = [handle_keypress(Pid, keycode(Key)) || Pid <- Subs],
     {noreply,State};
-handle_info({_, {cec,{[],_,_,?CEC_USER_CONTROL_RELEASE,[]}}},
+handle_info({_, {cec,{_,_,_,?CEC_USER_CONTROL_RELEASE,[]}}},
             #state{subs=Subs} = State) ->
     _ = [handle_keyrel(Pid) || Pid <- Subs],
     {noreply,State};
-handle_info({_, {cec,{[],_,_,?CEC_REPORT_AUDIO_STATUS,[<<M:1,Volume:7>>]}}},
+handle_info({_, {cec,{_,_,_,?CEC_REPORT_AUDIO_STATUS,[<<M:1,Volume:7>>]}}},
             #state{subs=Subs} = State) ->
     Mute = M =:= 1,
     _ = [handle_volume(Pid, Mute, Volume) || Pid <- Subs],
     {noreply,State};
-handle_info({_, {cec,{[],_,_,?CEC_ROUTING_CHANGE,Params}}},
+handle_info({_, {cec,{_,_,_,?CEC_ROUTING_CHANGE,Params}}},
             #state{paddr=Paddr} = State) ->
     <<_From:2/binary,To:2/binary>> = list_to_binary(Params),
     if To =:= Paddr ->
@@ -126,12 +126,12 @@ handle_info({_, {cec,{[],_,_,?CEC_ROUTING_CHANGE,Params}}},
             ok
     end,
     {noreply,State#state{active=To}};
-handle_info({_, {cec,{[],_,_,?CEC_GIVE_PHYSICAL_ADDRESS,[]}}},
+handle_info({_, {cec,{_,_,_,?CEC_GIVE_PHYSICAL_ADDRESS,[]}}},
             #state{paddr   = Paddr,
                    devtype = DevType} = State) ->
     broadcast(State, {report_physical_address,Paddr,DevType}),
     {noreply,State};
-handle_info({_, {cec,{[],_,_,?CEC_GIVE_DEVICE_VENDOR_ID,[]}}},
+handle_info({_, {cec,{_,_,_,?CEC_GIVE_DEVICE_VENDOR_ID,[]}}},
             #state{vendor=VendorId} = State) ->
     broadcast(State, {device_vendor_id,VendorId}),
     {noreply,State};
@@ -280,7 +280,7 @@ sub() ->
                         io:format("~w got: ~w~n",[self(), {Pid,Reason}]),
                         czech:subscribe(self());
                         X->
-                        io:format("~w got: ~w~n",[self(), X]) 
+                        io:format("~w got: ~w~n",[self(), X])
                 end,
                 G(G)
         end,
