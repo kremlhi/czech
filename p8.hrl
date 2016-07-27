@@ -8,7 +8,8 @@
 -record(ind_ack, {ack :: ok | nack,
                   op :: 0..63}).
 -record(ind_err, {type :: timeout | high | low,
-                    param = <<>> :: binary()}).
+                  line :: integer(),
+                  time :: integer()}).
 -record(ind_tx_ack, {ack :: ok |
                             tx_nack | fail_line | timeout_d | timeout_l}).
 -record(ind_rx, {ack :: 0 | 1,
@@ -24,8 +25,8 @@
 -type ind_tx_ack() :: #ind_tx_ack{}.
 -type ind_rx() :: #ind_rx{}.
 
--type packets() :: cmd() | cmd_tx() |
-                   ind_ack() | ind_tx_ack() | ind_err() | ind_rx().
+-type packet() :: cmd() | cmd_tx() |
+                  ind_ack() | ind_tx_ack() | ind_err() | ind_rx().
 
 
 -define(BEG, 16#ff).

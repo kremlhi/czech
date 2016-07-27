@@ -172,8 +172,10 @@ terminate(_Reason, #state{fd=S}) ->
 %% Internal functions
 %%====================================================================
 
-indtocec(#ind_rx{src=Src, dest=Dest, op=Op, params=Params}) ->
-    {cec,{[],Src,Dest,Op,Params}}.
+indtocec(#ind_rx{ack=Ack, src=Src, dest=Dest, op=Op, params=Params}) ->
+    {cec,{[{ack_p,Ack}],Src,Dest,Op,Params}};
+indtocec(#ind_err{type=Type, line=Line, time=Time}) ->
+    {error,{Type,Line,Time}}.
 
 notify(Pid, Msg) ->
     Pid ! {self(),Msg}.
@@ -182,16 +184,9 @@ handle_send(S, State, {cec,{Flags,Src,Dest,Op,Params}}) ->
     Req = #cmd_tx{flags=Flags,
                   src=Src, dest=Dest,
                   op=Op, params=Params},
-    Exp = ack_ops(Req),
+    Exp = p8_packet:ack_ops(Req),
     Ms = request(S, State, Req),
     cec_recv_rest(S, State, Exp, Ms, ok).
-
-ack_ops(#cmd_tx{flags=Flags, op=Op, params=Params}) ->
-    F = [p8_packet:cmd_tx_atoi_flag(X) || {X,_} <- Flags],
-    O = [?P8_CMD_TX || X <- [Op], X =/= undefined],
-    P = [?P8_CMD_TX || _ <- Params],
-    S = [?P8_CMD_TX_EOM], %src/dest is mandatory
-    F ++ O ++ P ++ S.
 
 cec_recv_rest(_, _, _, {error,Reason}, _) ->
     {error,Reason};
