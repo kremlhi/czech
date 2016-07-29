@@ -7,13 +7,38 @@
 
 (require 'emms-player-vlc)
 
+;; (defun start1 ()
+;;   (erl-spawn
+;;     (setq erl-trap-exit t)
+;;     (rereg)
+;;     (loop1 0)))
+
+;; (defun rereg ()
+;;   (erl-send-rpc (erl-target-node) 'czech_el 'add_handler (list erl-self)))
+
+;; (defun loop1 (cnt)
+;;   (message "loop1 %s" cnt)
+;;   (erl-receive (cnt)
+;;       ((['EXIT pid rsn] (rereg))
+;;        (other (message "loop1 %s" other)))
+;;     (loop1 (1+ cnt))))
+
+
+;; (erl-send-rpc (erl-target-node) 'io 'format '("hello you~n"))
+
+;; (erl-spawn
+;;   (erl-send [TYPE erl-pid distel_1048@skoll\.local 16 0 0] 'hejsan))
+
+;; (erl-spawn
+;;   (erl-send ['TYPE erl-pid erl-node-name 54 0 0] 'hejsan))
+
 (defun czech-start ()
-  (emms)
+  ;; (emms)
   (erl-spawn
-    ;;(setq erl-trap-exit t)
-       (erl-send-rpc (erl-target-node) 'czech 'subscribe (list erl-self))
-    ;;    (erl-send (tuple 'czech (erl-target-node)) 'tja)
-;;    (erl-register 'emms)
+;;    (setq erl-trap-exit t)
+    (erl-send-rpc (erl-target-node) 'el_proxy 'add_handler (list erl-self))
+    ;;(erl-send (tuple 'czech (erl-target-node)) 'tja)
+    ;; (erl-register 'emms)
     (erl-receive ()
         ((['rex ['badrpc reason]]
           (message "Bad RPC: %s" reason))
@@ -24,7 +49,7 @@
 (defun czech-loop ()
   (erl-receive ()
       ((['keypress pid key]
-        (ignore-errors
+        (ignore-errors ;don't care about stuff throwing errors
           (czech-handle-keypress key)))
        (['keyrel pid]
         (czech-handle-keyrel))

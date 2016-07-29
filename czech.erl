@@ -58,7 +58,7 @@ start_link(Mod, Opts) ->
                           [{timeout,5000}]).
 
 stop() -> gen_server:stop(?SERVER).
-subscribe(Pid) -> gen_server:cast(?SERVER, {subscribe,Pid}).
+subscribe(Pid) -> gen_server:call(?SERVER, {subscribe,Pid}).
 
 %%====================================================================
 %% gen_server callbacks
@@ -91,6 +91,9 @@ check_adapter(#state{mod=Mod, pid=H}) ->
     true = Mod:get_builddate(H) > 0,
     ok.
 
+handle_call({subscribe,Pid}, {_,_}, #state{subs=Subs} = State) ->
+    link(Pid),
+    {reply,{ok,self()},State#state{subs=lists:usort([Pid | Subs])}};
 handle_call(_Req, _From, State) ->
     {reply,{error,nih},State}.
 
