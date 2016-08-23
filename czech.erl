@@ -233,8 +233,7 @@ broadcast(#state{mod=Mod, pid=H, laddr=Src}, Req) ->
             Op = ?CEC_REPORT_PHYSICAL_ADDRESS,
             Params = [<<X>> || <<X>> <= Paddr] ++ [<<DevType>>]
     end,
-    Mod:send(H, [{ack_p,1}],
-             Src, ?LADDR_BROADCAST, Op, Params).
+    Mod:send(H, [{ack_p,1}], Src, ?LADDR_BROADCAST, Op, Params).
 
 -spec send(state(), dest(), tuple()) -> 'ok' | {'error',any()}.
 send(#state{mod=Mod, pid=H, laddr=Src}, Dest, Req) ->
@@ -249,8 +248,7 @@ send(#state{mod=Mod, pid=H, laddr=Src}, Dest, Req) ->
                    true -> [<<1>>]
                 end
     end,
-    Mod:send(H, [{ack_p,0}],
-             Src, Dest, Op, Params).
+    Mod:send(H, [{ack_p,0}], Src, Dest, Op, Params).
 
 -spec set_laddr(state()) -> laddr().
 set_laddr(State) ->
