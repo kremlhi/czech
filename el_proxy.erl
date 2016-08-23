@@ -46,7 +46,7 @@ handle_info(Msg, #state{left=Lpid} = State) when Lpid /= undefined ->
     Lpid ! Msg,
     {noreply,State};
 handle_info(Msg, State) ->
-    error_logger:warning_msg("dropping ~w~n", [Msg]),
+    error_logger:warning_msg("no receiver, discarding ~w~n", [Msg]),
     {noreply,State}.
 
 code_change(_OldVsn, State, _Extra) ->
