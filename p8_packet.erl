@@ -151,32 +151,31 @@ decode(B, Acc, Inc) ->
 
 
 -spec decode1(<<_:32,_:_*8>>) -> {cmd() | cmd_tx() | ind_rx(),binary()}.
-decode1(<<?BEG,B0/binary>> = B) ->
-  case B0 of
-      <<X,_/binary>>
-        when X =:= ?P8_IND_ERR_TIMEOUT;
-             X =:= ?P8_IND_ERR_HIGH;
-             X =:= ?P8_IND_ERR_LOW ->
-          ind_err_decode(B);
-      <<_:2,?P8_IND_RX_START:6,_/binary>> ->
-          ind_rx_decode(B);
-      <<X,_/binary>>
-        when X =:= ?P8_IND_ACK;
-             X =:= ?P8_IND_NACK ->
-          ind_ack_decode(B);
-      <<X,_/binary>>
-        when X =:= ?P8_CMD_TX_SET_IDLE;
-             X =:= ?P8_CMD_TX_SET_ACK_P;
-             X =:= ?P8_CMD_TX_SET_TIMEOUT ->
-          cmd_tx_decode(B);
-      <<X,_/binary>>
-        when X =:= ?P8_IND_TX_ACK;
-             X =:= ?P8_IND_TX_FAIL_LINE;
-             X =:= ?P8_IND_TX_NACK;
-             X =:= ?P8_IND_TX_TIMEOUT_D;
-             X =:= ?P8_IND_TX_TIMEOUT_L ->
-          ind_tx_ack_decode(B);
-      _ ->
+decode1(<<?BEG,_:2,X:6/binary>> = B) ->
+    if X =:= ?P8_IND_ERR_TIMEOUT;
+       X =:= ?P8_IND_ERR_HIGH;
+       X =:= ?P8_IND_ERR_LOW ->
+            ind_err_decode(B);
+       X =:= ?P8_IND_RX_START ->
+            ind_rx_decode(B);
+       X =:= ?P8_IND_ACK;
+       X =:= ?P8_IND_NACK ->
+            ind_ack_decode(B);
+       X =:= ?P8_CMD_TX_SET_IDLE;
+       X =:= ?P8_CMD_TX_SET_ACK_P;
+       X =:= ?P8_CMD_TX_SET_TIMEOUT ->
+            cmd_tx_decode(B);
+       X =:= ?P8_IND_TX_ACK;
+       X =:= ?P8_IND_TX_FAIL_LINE;
+       X =:= ?P8_IND_TX_NACK;
+       X =:= ?P8_IND_TX_TIMEOUT_D;
+       X =:= ?P8_IND_TX_TIMEOUT_L ->
+            ind_tx_ack_decode(B);
+       X =:= ?P8_IND_RX_NEXT ->   % only after ?P8_IND_RX_START
+            erlang:error({invalid,B});
+       X =:= ?P8_IND_RX_FAILED -> % not implemented
+            erlang:error({nih,B});
+       true ->
           cmd_decode(B)
   end.
 
