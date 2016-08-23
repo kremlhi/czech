@@ -4,12 +4,12 @@ Sit comfortable on your sofa and let Emacs play your favourite movies.
 
 0. Patch emms-player-vlc.el (with changes found in czech.el)
 1. Start Emacs with distel and EMMS loaded.
-2. In the *erlang* buffer run: czech:start_link().
+2. In the *erlang* buffer run: czech_sup:start_link().
 3. M-x load-file czech.el
 4. M-: (czech-start)
 
 TODO:
-* fix czech_sup.erl
+* add erl-nodeup-hook to bring up czech.el (and distel and EMMS)
 * a user friendly startup script
 * say hello to TV if p8 is active and wake up display
 * negative test cases (send #ind_err{})
