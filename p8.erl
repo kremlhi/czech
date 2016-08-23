@@ -21,6 +21,7 @@
                 ctlproc = []       :: pid(),
                 recvbuf = <<>>     :: binary(),
                 info               :: fun(),
+                err                :: fun(),
                 pretty             :: fun()}).
 
 -type state() :: #state{}.
@@ -61,8 +62,8 @@ set_ack_mask(H, X, Y)   -> gen_server:call(H, {set_ack_mask,X,Y}).
 
 init([Cpid]) ->
     process_flag(trap_exit, true),
-    ExtPrg = "./p8adpt",
-%%  ExtPrg = "./echo",
+    %% ExtPrg = "./p8adpt",
+  ExtPrg = "./echo",
     Dev = "/dev/cu.usbmodemv2_r1",
     S = init_port(ExtPrg, Dev),
     {ok,#state{fd=S, ctlproc=Cpid}}.
@@ -151,10 +152,17 @@ handle_info({S, {data,B}}, #state{fd      = S,
                                   ctlproc = Cpid,
                                   recvbuf = Buf} = State) ->
     info(State, "<<< ~w~n", [B]),
-    {Ms,Buf2} = p8_packet:decode(<<Buf/binary,B/binary>>),
-    pretty(State, "<<< ", Ms),
-    _ = [notify(Cpid, indtocec(M)) || M <- Ms],
-    {noreply,State#state{recvbuf=Buf2}};
+    B2 = <<Buf/binary,B/binary>>,
+    try
+        {Ms,Buf2} = p8_packet:decode(B2),
+        pretty(State, "<<< ", Ms),
+        _ = [notify(Cpid, indtocec(M)) || M <- Ms],
+        {noreply,State#state{recvbuf=Buf2}}
+    catch
+        error:Error ->
+            err(State, "~w could not decode ~w, discarding~n", [Error, B2]),
+            {noreply,State#state{recvbuf = <<>>}}
+    end;
 handle_info({'EXIT',S,Reason}, #state{fd=S} = State) ->
     {stop, {port_terminated,Reason}, State}.
 
@@ -205,8 +213,8 @@ cec_recv_rest(S, State, [Op | T], [M | Ms], Result) ->
     case M of
         #ind_ack{ack=ok, op=Op} ->
             cec_recv_rest(S, State, T, Ms, Result);
-        #ind_ack{ack=Ack, op=Op} ->
-            cec_recv_rest(S, State, T, Ms, Ack)
+        #ind_ack{ack=Nack, op=Op} ->
+            cec_recv_rest(S, State, T, Ms, Nack)
     end;
 cec_recv_rest(S, State, Exp, [], Result) ->
     Ms = recv_response(S, State),
@@ -266,7 +274,8 @@ do_recv(S, #state{timeout=T} = State, _Len) ->
     receive
         {S, {data,<<?BEG,_:2,X:6,_/binary>> = B}}
           when X =/= ?P8_IND_RX_START, %skip #ind_rx{}
-               X =/= ?P8_IND_RX_NEXT ->
+               X =/= ?P8_IND_RX_NEXT,
+               X =/= ?P8_IND_RX_FAILED ->
             info(State, "<== ~w~n", [B]),
             {ok,B}
     after T ->
@@ -276,6 +285,11 @@ do_recv(S, #state{timeout=T} = State, _Len) ->
 info(#state{info=F}, Fmt, L) when is_function(F, 2) ->
     F(Fmt, L);
 info(_, _, _) ->
+    ok.
+
+err(#state{err=F}, Fmt, L) when is_function(F, 2) ->
+    F(Fmt, L);
+err(_, _, _) ->
     ok.
 
 pretty(#state{pretty=F}, Prefix, L) when is_function(F, 2) ->
