@@ -1,11 +1,9 @@
+(require 'emms-dir-mode)
 (require 'erl-service)
-(eval-when-compile (require 'cl))
+(eval-when-compile
+  (require 'cl))
 
-(require 'emms-setup)
-(emms-all)
-(emms-default-players)
-
-(require 'emms-player-vlc)
+;; TODO: move this crap
 
 ;; (defun start1 ()
 ;;   (erl-spawn
@@ -33,9 +31,12 @@
 ;;   (erl-send ['TYPE erl-pid erl-node-name 54 0 0] 'hejsan))
 
 (defun czech-start ()
-  ;; (emms)
+  (call-interactively #'emms-dir)
+  (add-hook 'emms-player-started-hook 'czech-set-player-active)
+  (add-hook 'emms-player-stopped-hook 'czech-set-player-inactive) ;user interaction
+  (add-hook 'emms-player-finished-hook 'czech-set-player-inactive)
+
   (erl-spawn
-;;    (setq erl-trap-exit t)
     (erl-send-rpc (erl-target-node) 'el_proxy 'add_handler (list erl-self))
     ;;(erl-send (tuple 'czech (erl-target-node)) 'tja)
     ;; (erl-register 'emms)
@@ -62,41 +63,48 @@
 
 (defun czech-handle-volume (mute vol)
   (message "volume %s%%%s" vol
-           (if (eq mute 'true) " [mute]"
-             "")))
+           (if (eq mute 'true) " [mute]" "")))
 
+;; czech ! {self(),{cec,{[],0,0,68,[<<68>>]}}}.
+;; el_proxy ! {keypress,self(),play}.
 (defun czech-handle-keypress (key)
   (with-selected-window (selected-window)
-    (cond ((eq key 'enter)
-           (progn
-             (setq czech-player-active t)
-             (emms-playlist-mode-play-smart)))
-          ((eq key 'up) (forward-line -1))
-          ((eq key 'down) (forward-line))
-          ((eq key 'left) (emms-seek -10))
-          ((eq key 'right) (emms-seek 10))
+    (unless (eq (current-buffer) emms-playlist-buffer)
+      (switch-to-buffer emms-playlist-buffer))
+    (cond ((eq key 'enter) (funcall (local-key-binding "\C-m")))
+          ((eq key 'up) (funcall (local-key-binding "\C-p")))
+          ((eq key 'down) (funcall (local-key-binding "\C-n")))
+          ((eq key 'left) (funcall (local-key-binding "<")))
+          ((eq key 'right) (funcall (local-key-binding ">")))
+          ((eq key 'return) (funcall (local-key-binding "^")))
           ((eq key 'cancel) (czech-alt-tab))
-          ((eq key 'ch_up) (forward-line -20))
-          ((eq key 'ch_down) (forward-line 20))
+          ((eq key 'ch_up) (funcall (local-key-binding "\M-v")))
+          ((eq key 'ch_down) (funcall (local-key-binding "\C-v")))
           ((eq key 'volup) t)
           ((eq key 'voldown) t)
-          ((eq key 'pause) (emms-pause))
-          ((eq key 'stop)
-           (progn
-             (setq czech-player-active nil)
-             (emms-stop)))
-          ((eq key 'play)
-           (progn
-             (setq czech-player-active t)
-             (emms-pause)))
-          ((eq key 'rew) (emms-seek -90))
-          ((eq key 'ff) (emms-seek 90))
-          ((eq key 'skip_next) (emms-next))
-          ((eq key 'skip_prev) (emms-previous))
-          ((eq key 'd0) (delete-other-windows))
-          ((eq key 'd8) (message (format "%S" (current-buffer))))
-          ((eq key 'd9) (emms-playlist-mode-goto-dired-at-point))
+          ((eq key 'pause) (funcall (local-key-binding "P")))
+          ((eq key 'stop) (funcall (local-key-binding "s")))
+          ((eq key 'play) (funcall (local-key-binding "P")))
+          ((eq key 'rew) (funcall (local-key-binding ",")))
+          ((eq key 'ff) (funcall (local-key-binding ".")))
+          ((eq key 'skip_next) (funcall (local-key-binding "n")))
+          ((eq key 'skip_prev) (funcall (local-key-binding "p")))
+          ((eq key 'sttl) (funcall (local-key-binding "8")))
+
           (t (message "key %s" key)))))
+
+(defvar czech-player-active nil)
+(defun czech-alt-tab ()
+  (setq czech-player-active (not czech-player-active))
+  (if czech-player-active
+      (ns-raise-vlc)
+    (ns-raise-emacs)
+    czech-player-active))
+
+(defun czech-set-player-active ()
+  (setq czech-player-active t))
+(defun czech-set-player-inactive ()
+  (setq czech-player-active nil))
 
 (defun ns-raise-vlc ()
   "Raise VLC."
@@ -111,14 +119,6 @@
   (with-selected-frame frame
     (when (display-graphic-p)
       (ns-raise-emacs))))
-
-(defvar czech-player-active t)
-(defun czech-alt-tab ()
-  (setq czech-player-active (not czech-player-active))
-  (if czech-player-active (ns-raise-vlc)
-     (progn (ns-raise-emacs) (emms))
-    czech-player-active))
-
 
 ;; (setq emms-source-file-default-directory "~/Music/")
 ;; 'M-x emms-add-directory-tree RET ~/Music/ RET'.
@@ -139,3 +139,4 @@
 ;; (define-emms-simple-player vlc-playlist '(streamlist)
 ;;   "\\`http[s]?://"
 ;;   "vlc" "--control=rc" "--fullscreen")
+
