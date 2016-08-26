@@ -101,8 +101,8 @@
 (defun emms-dir-filter-buf (path)
   (remove-if (lambda (buf)
                (not (and (buffer-live-p buf)
-                         (equal path (with-current-buffer buf
-                                       default-directory)))))
+                         (string= path (with-current-buffer buf
+                                         default-directory)))))
              (emms-playlist-buffer-list)))
 
 (defun emms-dir-playlist-buf (path)
