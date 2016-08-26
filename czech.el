@@ -3,61 +3,45 @@
 (eval-when-compile
   (require 'cl))
 
-;; TODO: move this crap
+(defvar czech-player-active nil)
 
-;; (defun start1 ()
-;;   (erl-spawn
-;;     (setq erl-trap-exit t)
-;;     (rereg)
-;;     (loop1 0)))
-
-;; (defun rereg ()
-;;   (erl-send-rpc (erl-target-node) 'czech_el 'add_handler (list erl-self)))
-
-;; (defun loop1 (cnt)
-;;   (message "loop1 %s" cnt)
-;;   (erl-receive (cnt)
-;;       ((['EXIT pid rsn] (rereg))
-;;        (other (message "loop1 %s" other)))
-;;     (loop1 (1+ cnt))))
-
-
-;; (erl-send-rpc (erl-target-node) 'io 'format '("hello you~n"))
-
-;; (erl-spawn
-;;   (erl-send [TYPE erl-pid distel_1048@skoll\.local 16 0 0] 'hejsan))
-
-;; (erl-spawn
-;;   (erl-send ['TYPE erl-pid erl-node-name 54 0 0] 'hejsan))
+(defun czech-read-node ()
+  (erl-target-node))
 
 (defun czech-start ()
-  (call-interactively #'emms-dir)
   (add-hook 'emms-player-started-hook 'czech-set-player-active)
   (add-hook 'emms-player-stopped-hook 'czech-set-player-inactive) ;user interaction
   (add-hook 'emms-player-finished-hook 'czech-set-player-inactive)
-
   (erl-spawn
-    (erl-send-rpc (erl-target-node) 'el_proxy 'add_handler (list erl-self))
-    ;;(erl-send (tuple 'czech (erl-target-node)) 'tja)
-    ;; (erl-register 'emms)
-    (erl-receive ()
-        ((['rex ['badrpc reason]]
-          (message "Bad RPC: %s" reason))
-         (['rex result]
-          (progn (message "result %s" result)
-                 (czech-loop)))))))
+    (setq erl-trap-exit t)
+    (czech-subscribe (czech-read-node))))
 
-(defun czech-loop ()
+(defun czech-subscribe (node)
+  (message "subscribe %s" node)
+  (erl-send-rpc node 'czech 'subscribe (list erl-self))
+  (erl-receive (node)
+      ((['rex ['ok from]]
+        (erl-dist-link from)
+        (message "subscribe done %s" from))
+       (['rex resp]
+        (error "unexpected response: %s" resp)))
+    (&czech-loop node)))
+
+(defun &czech-loop (node)
   (erl-receive ()
-      ((['keypress pid key]
+      ((['keypress from key]
         (ignore-errors ;don't care about stuff throwing errors
           (czech-handle-keypress key)))
-       (['keyrel pid]
+       (['keyrel from]
         (czech-handle-keyrel))
-       (['volume pid mute vol]
+       (['volume from mute vol]
         (czech-handle-volume mute vol))
+       (['EXIT from reason]
+        (message "oshit %s died: %s @%s" from reason node)
+        (sit-for 2)
+        (czech-subscribe node))
        (other (message "cecmsg %S" other)))
-    (czech-loop)))
+    (&czech-loop node)))
 
 (defun czech-handle-keyrel () t)
 
@@ -66,9 +50,10 @@
            (if (eq mute 'true) " [mute]" "")))
 
 ;; czech ! {self(),{cec,{[],0,0,68,[<<68>>]}}}.
-;; el_proxy ! {keypress,self(),play}.
 (defun czech-handle-keypress (key)
   (with-selected-window (selected-window)
+    (unless (buffer-live-p emms-playlist-buffer)
+      (call-interactively #'emms-dir))
     (unless (eq (current-buffer) emms-playlist-buffer)
       (switch-to-buffer emms-playlist-buffer))
     (cond ((eq key 'enter) (funcall (local-key-binding "\C-m")))
@@ -93,7 +78,6 @@
 
           (t (message "key %s" key)))))
 
-(defvar czech-player-active nil)
 (defun czech-alt-tab ()
   (setq czech-player-active (not czech-player-active))
   (if czech-player-active

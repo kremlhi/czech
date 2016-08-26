@@ -1,27 +1,26 @@
 -module(czech).
 -behaviour(gen_server).
 
--include("czech.hrl").
-
 -export([start_link/0, start_link/1, start_link/2, stop/0, subscribe/1]).
--export([sub/0]).
 
 %% Callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          code_change/3, terminate/2]).
 
+-include("czech.hrl").
+
+-import(error_logger, [error_msg/2, warning_msg/2, info_msg/2]). %looooong names
+
 -define(SERVER, ?MODULE).
 
 -record(state, {subs   = []           :: [pid()],
                 mod                   :: module(),
-                pid                   :: pid(),
+                adpt                  :: pid(),
                 devtype               :: devtype(),
                 laddr  = ?LADDR_UNREG :: src(),
                 paddr                 :: paddr(),
                 vendor = <<0,21,130>>, %pulse-eight
                 active                :: paddr(),
-                warn                  :: fun(),
-                info                  :: fun(),
                 devs   = []           :: [dev()]}).
 
 -type state() :: #state{}.
@@ -65,15 +64,16 @@ subscribe(Pid) -> gen_server:call(?SERVER, {subscribe,Pid}).
 %%====================================================================
 
 init([Mod | _Opts]) ->
+    process_flag(trap_exit, true),
     case Mod:open() of
         {ok,H} ->
-            State = init_adpt(#state{mod=Mod, pid=H}),
+            State = init_adpt(#state{mod=Mod, adpt=H}),
             {ok,State};
         {error,Reason} ->
             {stop,Reason}
     end.
 
-init_adpt(#state{mod=Mod, pid=H} = State) ->
+init_adpt(#state{mod=Mod, adpt=H} = State) ->
     ok = check_adapter(State),
     DevType = Mod:get_adapter_type(H),
     ok = set_idle(State, ?LADDR_UNREG, ?LADDR_TV, 3),
@@ -84,23 +84,20 @@ init_adpt(#state{mod=Mod, pid=H} = State) ->
                 laddr   = Laddr,
                 paddr   = Paddr}.
 
-check_adapter(#state{mod=Mod, pid=H}) ->
+check_adapter(#state{mod=Mod, adpt=H}) ->
     FwVsn = Mod:get_firmware_vsn(H),
     true = FwVsn > 2,
     ok = Mod:set_controlled(H, 1),
     true = Mod:get_builddate(H) > 0,
     ok.
 
-handle_call({subscribe,Pid}, {_,_}, #state{subs=Subs} = State) ->
+handle_call({subscribe,Pid}, _, #state{subs=Subs} = State) ->
     link(Pid),
-    {reply,{ok,self()},State#state{subs=lists:usort([Pid | Subs])}};
-handle_call(_Req, _From, State) ->
-    {reply,{error,nih},State}.
+    {reply,{ok,self()},State#state{subs=lists:usort([Pid | Subs])}}.
 
 -spec handle_cast(_,state()) -> {'noreply',state()}.
-handle_cast({subscribe,Pid}, #state{subs=Subs} = State) ->
-    link(Pid),
-    {noreply,State#state{subs=lists:usort([Pid | Subs])}}.
+handle_cast(_Req, State) ->
+    {noreply,State}.
 
 -spec handle_info({pid(),cec()},state()) ->
                          {'noreply',state()}.
@@ -139,11 +136,17 @@ handle_info({_, {cec,{_,_,_,?CEC_GIVE_DEVICE_VENDOR_ID,[]}}},
     broadcast(State, {device_vendor_id,VendorId}),
     {noreply,State};
 handle_info({_, {cec,{_,Src,_,_,_}}} = M, #state{devs=Devs} = State) ->
-    info(State, "unhandled message: ~w", [M]),
+    info_msg("unhandled message: ~w~n", [M]),
     [D | Devs2] = take_dev(Src, Devs),
     {noreply,State#state{devs=[D | Devs2]}};
+handle_info({'EXIT',H,Reason}, #state{adpt=H} = State) ->
+    error_msg("adapter ~w died (~p), closing down for today~n", [H, Reason]),
+    {stop,Reason,State};
+handle_info({'EXIT',Pid,Reason}, #state{subs=Subs} = State) ->
+    info_msg("subscriber ~w died (~p), removing~n", [Pid, Reason]),
+    {noreply,State#state{subs=Subs -- [Pid]}};
 handle_info(M, State) ->
-    warn(State, "unknown message: ~w", [M]),
+    warning_msg("unknown message: ~w~n", [M]),
     {noreply,State}.
 
 take_dev(Laddr, Devs) ->
@@ -201,8 +204,8 @@ code_change(_OldVsn, State, _Extra) ->
     {ok,State}.
 
 -spec terminate(any(),state()) -> no_return().
-terminate(Reason, #state{mod=Mod, pid=H} = State) ->
-    warn(State, "GOING DOWN D: ~p", [Reason]),
+terminate(Reason, #state{mod=Mod, adpt=H}) ->
+    warning_msg("GOING DOWN D: ~p~n", [Reason]),
     Mod:set_ack_mask(H, 0, 0),
     Mod:set_controlled(H, 0),
     Mod:close(H),
@@ -213,15 +216,15 @@ terminate(Reason, #state{mod=Mod, pid=H} = State) ->
 %%====================================================================
 
 -spec polling_message(state(), laddr()) -> 'ok'.
-polling_message(#state{mod=Mod, pid=H}, Laddr) ->
+polling_message(#state{mod=Mod, adpt=H}, Laddr) ->
     Mod:send(H, [], Laddr, Laddr).
 
 -spec set_idle(state(), src(), dest(), integer()) -> 'ok'.
-set_idle(#state{mod=Mod, pid=H}, Src, Dest, Time) ->
+set_idle(#state{mod=Mod, adpt=H}, Src, Dest, Time) ->
     Mod:send(H, [{idle,Time}], Src, Dest).
 
 -spec broadcast(state(), tuple()) -> 'ok' | {'error',any()}.
-broadcast(#state{mod=Mod, pid=H, laddr=Src}, Req) ->
+broadcast(#state{mod=Mod, adpt=H, laddr=Src}, Req) ->
     case Req of
         {active_source,Paddr} ->
             Op = ?CEC_ACTIVE_SOURCE,
@@ -236,7 +239,7 @@ broadcast(#state{mod=Mod, pid=H, laddr=Src}, Req) ->
     Mod:send(H, [{ack_p,1}], Src, ?LADDR_BROADCAST, Op, Params).
 
 -spec send(state(), dest(), tuple()) -> 'ok' | {'error',any()}.
-send(#state{mod=Mod, pid=H, laddr=Src}, Dest, Req) ->
+send(#state{mod=Mod, adpt=H, laddr=Src}, Dest, Req) ->
     case Req of
         {image_view_on} ->
             Op = ?CEC_IMAGE_VIEW_ON,
@@ -264,38 +267,3 @@ set_laddr(State, [Laddr | T]) ->
             {error,tx_nack} = polling_message(State, Laddr),
             Laddr
     end.
-
-warn(#state{warn=F}, Fmt, L) when is_function(F, 2) ->
-    F(Fmt, L);
-warn(_, _, _) ->
-    ok.
-
-info(#state{warn=F}, Fmt, L) when is_function(F, 2) ->
-    F(Fmt, L);
-info(_, _, _) ->
-    ok.
-
-sub() ->
-    F = fun(G)->
-                receive {'EXIT',Pid,Reason} ->
-                        io:format("~w got: ~w~n",[self(), {Pid,Reason}]),
-                        czech:subscribe(self());
-                        X->
-                        io:format("~w got: ~w~n",[self(), X])
-                end,
-                G(G)
-        end,
-    P = spawn(fun()->
-                      process_flag(trap_exit, true),
-                      czech:subscribe(self()),
-                      F(F)
-              end),
-    Sub = whereis(sub),
-    if Sub =:= undefined ->
-            ok;
-       true ->
-            exit(Sub, kill),
-            unregister(sub)
-    end,
-    register(sub, P),
-    P.

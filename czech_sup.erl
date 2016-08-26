@@ -19,13 +19,7 @@ init(_Args) ->
                shutdown => 1000,
                type     => worker,
                modules  => [czech]},
-    Child2 = #{id       => el_proxy,
-               start    => {el_proxy,start_link,[]},
-               restart  => permanent,
-               shutdown => 1000,
-               type     => worker,
-               modules  => [el_proxy]},
     Flags = #{strategy  => one_for_one,
               intensity => 1,
               period    => 5},
-    {ok, {Flags,[Child1, Child2]}}.
+    {ok, {Flags,[Child1]}}.
