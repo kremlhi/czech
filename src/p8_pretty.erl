@@ -24,8 +24,8 @@ pretty2(#cmd_tx{flags=Fx, src=Src, dest=Dest, op=Op, params=Px}) ->
     end;
 pretty2(#ind_ack{ack=Ack, op=Op}) ->
     io_lib:format("ind_ack ~w ~s(~w)", [Ack, codetostr(Op),Op]);
-pretty2(#ind_err{type=Type, param=Param}) ->
-    io_lib:format("ind_err ~w ~w", [Type, Param]);
+pretty2(#ind_err{type=Type, line=Line, time=Time}) ->
+    io_lib:format("ind_err ~w l:~w t:~w", [Type, Line, Time]);
 pretty2(#ind_tx_ack{ack=Ack}) ->
     io_lib:format("ind_tx_ack ~w", [Ack]);
 pretty2(#ind_rx{ack=Ack, src=Src, dest=Dest, op=Op, params=Px}) ->

@@ -60,12 +60,14 @@ set_ack_mask(H, X, Y)   -> gen_server:call(H, {set_ack_mask,X,Y}).
 %% gen_server callbacks
 %%====================================================================
 
+extprog() ->
+    %% ExtPrg = "./p8adpt",
+    filename:join(czech_app:priv_dir(), "echo").
+
 init([Cpid]) ->
     process_flag(trap_exit, true),
-    %% ExtPrg = "./p8adpt",
-  ExtPrg = "./echo",
     Dev = "/dev/cu.usbmodemv2_r1",
-    S = init_port(ExtPrg, Dev),
+    S = init_port(extprog(), Dev),
     {ok,#state{fd=S, ctlproc=Cpid}}.
 
 init_port(ExtPrg, Dev) ->

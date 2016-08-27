@@ -4,19 +4,44 @@
   (require 'cl))
 
 (defvar czech-player-active nil)
+(defvar czech-ebin-dir (expand-file-name
+                        (concat (file-name-directory load-file-name)
+                                "../ebin")))
+(defvar czech-erlang-node nil)
 
 (defun czech-read-node ()
-  (erl-target-node))
+  (or czech-erlang-node
+      (setq czech-erlang-node (erl-target-node))))
 
 (defun czech-start ()
   (add-hook 'emms-player-started-hook 'czech-set-player-active)
   (add-hook 'emms-player-stopped-hook 'czech-set-player-inactive) ;user interaction
   (add-hook 'emms-player-finished-hook 'czech-set-player-inactive)
   (erl-spawn
-    (setq erl-trap-exit t)
-    (czech-subscribe (czech-read-node))))
+    (let ((node (czech-read-node)))
+      (setq erl-trap-exit t)
+      (erl-ping node)
+      (czech-add-code-path node))))
 
-(defun czech-subscribe (node)
+(defun czech-add-code-path (node)
+  (message "add load path %s to %s" czech-ebin-dir node)
+  (erl-send-rpc node 'code 'add_patha (list czech-ebin-dir))
+  (erl-receive (node)
+      ((['rex 'true] t)
+       (['rex resp]
+        (error "unexpected response: %s" resp)))
+    (&czech-start-app node)))
+
+(defun &czech-start-app (node)
+  (message "start app czech")
+  (erl-send-rpc node 'czech_app 'start ())
+  (erl-receive (node)
+      ((['rex 'ok] t)
+       (['rex resp]
+        (error "unexpected response: %s" resp)))
+    (&czech-subscribe node)))
+
+(defun &czech-subscribe (node)
   (message "subscribe %s" node)
   (erl-send-rpc node 'czech 'subscribe (list erl-self))
   (erl-receive (node)
@@ -28,7 +53,7 @@
     (&czech-loop node)))
 
 (defun &czech-loop (node)
-  (erl-receive ()
+  (erl-receive (node)
       ((['keypress from key]
         (ignore-errors ;don't care about stuff throwing errors
           (czech-handle-keypress key)))
@@ -104,23 +129,6 @@
     (when (display-graphic-p)
       (ns-raise-emacs))))
 
-;; (setq emms-source-file-default-directory "~/Music/")
-;; 'M-x emms-add-directory-tree RET ~/Music/ RET'.
+(provide 'czech)
 
-;; modifications needed to enable emms to control VLC
-
-;; emms-setup-default-player-list is a variable defined in
-;; `emms-setup.el'.  Its value is (emms-player-mpg321
-;; emms-player-ogg123 emms-player-mplayer-playlist emms-player-mplayer
-;; emms-player-vlc emms-player-vlc-playlist)
-
-;; (define-emms-simple-player vlc '(file url)
-;;   (concat "\\`\\(http[s]?\\|mms\\)://\\|"
-;;   (apply #'emms-player-simple-regexp
-;;  emms-player-base-format-list))
-;;   "vlc" "--control=rc" "--fullscreen")
-
-;; (define-emms-simple-player vlc-playlist '(streamlist)
-;;   "\\`http[s]?://"
-;;   "vlc" "--control=rc" "--fullscreen")
-
+;;; czech.el ends here

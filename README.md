@@ -2,15 +2,52 @@ EMMS + distel + p8 =:= love
 
 Sit comfortable on your sofa and let Emacs play your favourite movies.
 
-0. Patch emms-player-vlc.el (with changes found in czech.el)
-1. Start Emacs with distel and EMMS loaded.
-2. In the *erlang* buffer run: czech_sup:start_link().
-3. M-x load-file czech.el
-4. M-: (czech-start)
+Installation instructions:
+
+$ make
+
+Put this stuff in your ~/.emacs.d/init.el or ~/.emacs:
+
+(defun erl-root ()
+  (or (getenv "OTP_ROOT")
+      (shell-command-to-string
+       "erl -noinput -eval 'io:format(\"~s\",[code:root_dir()]),halt().'")))
+
+(defun cond-load-distel ()
+  (let ((distel (concat <PATH TO DISTEL> "/distel/elisp"))
+        (czech (concat <PATH TO CZECH> "/czech/elisp")))
+    (when (file-exists-p distel)
+      (add-to-list 'load-path distel)
+      (require 'distel)
+      (distel-setup)
+      (when (file-exists-p czech)
+        (add-to-list 'load-path czech)
+        (require 'czech)
+        (load "czech")))))
+
+(defun set-erlang-dir (dir)
+  (let ((bin-dir (expand-file-name "bin" dir))
+        (tools-dirs (file-expand-wildcards
+                     (concat dir "/lib/tools-*/emacs"))))
+    (when tools-dirs
+      (add-to-list 'load-path (car tools-dirs))
+      (add-to-list 'exec-path bin-dir)
+      (setq erlang-root-dir dir)
+      (setq erl-nodename-cache (intern (concat "emacs@" (system-name))))
+      (setq inferior-erlang-machine-options
+            (list "-name" (symbol-name erl-nodename-cache)))
+      (require 'erlang-start)
+      (cond-load-distel)))))
+(set-erlang-dir (erl-root))
+
+(defun czech-start-hook (node _fsm)
+  (setq czech-erlang-node node)
+  (czech-start))
+(add-hook 'erl-nodeup-hook 'czech-start-hook)
+
+M-x load-file <your init file>
 
 TODO:
-* add erl-nodeup-hook to bring up czech.el (and distel and EMMS)
-* a user friendly startup script
 * say hello to TV if p8 is active and wake up display
 * negative test cases (send #ind_err{})
 

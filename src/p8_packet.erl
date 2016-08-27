@@ -151,7 +151,7 @@ decode(B, Acc, Inc) ->
 
 
 -spec decode1(<<_:32,_:_*8>>) -> {cmd() | cmd_tx() | ind_rx(),binary()}.
-decode1(<<?BEG,_:2,X:6/binary>> = B) ->
+decode1(<<?BEG,_:2,X:6,_/binary>> = B) ->
     if X =:= ?P8_IND_ERR_TIMEOUT;
        X =:= ?P8_IND_ERR_HIGH;
        X =:= ?P8_IND_ERR_LOW ->
@@ -178,7 +178,6 @@ decode1(<<?BEG,_:2,X:6/binary>> = B) ->
        true ->
           cmd_decode(B)
   end.
-
 
 ind_ack_decode(<<?BEG,X,Op,?END,Rest/binary>>) ->
     V = case X of
