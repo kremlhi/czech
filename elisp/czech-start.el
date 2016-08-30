@@ -129,6 +129,6 @@
     (when (display-graphic-p)
       (ns-raise-emacs))))
 
-(provide 'czech)
+(provide 'czech-start)
 
-;;; czech.el ends here
+;;; czech-start.el ends here

@@ -22,8 +22,7 @@ Put this stuff in your ~/.emacs.d/init.el or ~/.emacs:
       (distel-setup)
       (when (file-exists-p czech)
         (add-to-list 'load-path czech)
-        (require 'czech)
-        (load "czech")))))
+        (require 'czech-start)))))
 
 (defun set-erlang-dir (dir)
   (let ((bin-dir (expand-file-name "bin" dir))

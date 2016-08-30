@@ -3,7 +3,7 @@
 
 (require 'emms)
 (require 'emms-playlist-mode)
-(require 'emms-player-vlc)
+(require 'emms-player-vlc-ext)
 (eval-when-compile
   (require 'cl))
 
