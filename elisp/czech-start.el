@@ -64,7 +64,7 @@
        (['EXIT from reason]
         (message "oshit %s died: %s @%s" from reason node)
         (sit-for 2)
-        (czech-subscribe node))
+        (&czech-subscribe node))
        (other (message "cecmsg %S" other)))
     (&czech-loop node)))
 

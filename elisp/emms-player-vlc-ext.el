@@ -25,6 +25,8 @@
 ;;; Code:
 
 (require 'emms-player-vlc)
+(eval-when-compile
+  (require 'cl))
 
 ;; --intf does not work, use --control instead
 (setq emms-player-vlc-parameters '("--control=rc" "--fullscreen"))
