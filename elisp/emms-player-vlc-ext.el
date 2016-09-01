@@ -26,6 +26,7 @@
 
 (require 'emms-player-vlc)
 
+;; --intf does not work, use --control instead
 (setq emms-player-vlc-parameters '("--control=rc" "--fullscreen"))
 
 ;; enable process buffer to read available subtitles
