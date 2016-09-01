@@ -22,12 +22,11 @@
   (interactive)
   (emms-dir-list ".."))
 
-(defun emms-dir-mode ()
-  (interactive)
-  (emms-playlist-mode)
-  (use-local-map emms-dir-mode-map)
-  (setq-local emms-track-description-function 'emms-dir-track-description)
-  (setq-local revert-buffer-function (function emms-dir-revert)))
+(define-derived-mode emms-dir-mode emms-playlist-mode "Emms-Dir"
+  "A major mode for the Emms dir.
+\\{emms-dir-mode-map}"
+  (setq-local emms-track-description-function #'emms-dir-track-description)
+  (setq-local revert-buffer-function #'emms-dir-revert))
 
 (defun emms-dir-file-media-p (file)
   (member (file-name-extension (downcase file))
@@ -74,12 +73,9 @@
     (define-key map (kbd "f") 'emms-show)
     (define-key map (kbd "c") 'emms-playlist-mode-center-current)
     (define-key map (kbd "q") 'emms-playlist-mode-bury-buffer)
-    (define-key map (kbd "k") 'emms-playlist-mode-current-kill)
-    (define-key map (kbd "?") 'describe-mode)
     (define-key map (kbd "r") 'emms-random)
-    (define-key map (kbd "C") 'emms-playlist-mode-clear)
     (define-key map (kbd "d") 'emms-playlist-mode-goto-dired-at-point)
-    (define-key map (kbd "<mouse-2>") 'emms-playlist-mode-play-current-track)
+    (define-key map (kbd "<mouse-2>") 'emms-dir-cd-or-play)
     (define-key map (kbd "RET") 'emms-dir-cd-or-play)
     (define-key map (kbd "^") 'emms-dir-cd-up)
     (define-key map (kbd "g") 'revert-buffer)
@@ -117,6 +113,7 @@
          (inhibit-read-only t))
     (with-current-buffer buf
       (setq emms-playlist-buffer buf)
+      (setq emms-playlist-buffer-p t)
       (setq default-directory epath)
       (emms-playlist-clear)
       (switch-to-buffer buf)
@@ -135,7 +132,7 @@
   (widen)
   (let ((inhibit-read-only t))
     (emms-playlist-clear)
-    (insert-stuff default-directory)))
+    (emms-dir-insert-stuff default-directory)))
 
 (defun emms-seek-fbackward ()
   (interactive)
