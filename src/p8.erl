@@ -61,8 +61,8 @@ set_ack_mask(H, X, Y)   -> gen_server:call(H, {set_ack_mask,X,Y}).
 %%====================================================================
 
 extprog() ->
-    %% ExtPrg = "./p8adpt",
-    filename:join(czech_app:priv_dir(), "echo").
+    ExtPrg = "./p8adpt",
+    filename:join(czech_app:priv_dir(), ExtPrg).
 
 init([Cpid]) ->
     process_flag(trap_exit, true),
