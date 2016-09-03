@@ -31,26 +31,62 @@
 ;; --intf does not work, use --control instead
 (setq emms-player-vlc-parameters '("--control=rc" "--fullscreen"))
 
-;; enable process buffer to read available subtitles
-(defadvice emms-player-vlc-start (around quit-vlc-after-finish activate)
-  (let ((process (apply 'start-process
-                        emms-player-simple-process-name
-                        emms-player-simple-process-name
-                        emms-player-vlc-command-name
-                        ;; splice in params here
-                        (append emms-player-vlc-parameters
-                                (list (emms-track-name (ad-get-arg 0)))
-                                '("vlc://quit")))))
-    ;; add a sentinel for signaling termination
-    (set-process-sentinel process 'emms-player-simple-sentinel))
-  (emms-player-started emms-player-vlc))
-
 ;; improve speed/accuracy in (re)winding
 (defun emms-player-vlc-seek2 (sec)
   "Seek relative within a stream."
   (process-send-string
    emms-player-simple-process-name
    (format "seek %s%d\n" (if (< 0 sec) "+" "") sec)))
+
+(defun emms-player-vlc-next-subtitle ()
+  (interactive)
+  (let ((p (get-process emms-player-simple-process-name)))
+    (set-process-filter p 'emms-player-vlc-next-sub-filter)
+    (process-send-string p "strack\n")))
+
+;; bleh, bother to learn *lisp when you have erlang :)
+(defun takewhile (c lst)
+  (if (funcall c (car lst))
+      (cons (car lst) (takewhile c (cdr lst)))
+    nil))
+
+(defun dropwhile (c lst)
+  (if (funcall c (car lst))
+      (dropwhile c (cdr lst))
+    lst))
+
+(defun emms-player-vlc-sub-list (string)
+  (let* ((subs
+          (mapcar (lambda (x)
+                    (if (string-match "\\([0-9]+\\) - \\(.*?\\)\\( \\*\\)?$" x)
+                        (list (if (match-string 3 x) t)
+                              (string-to-number (match-string 1 x))
+                              (match-string 2 x))))
+                  (split-string string "[\r\n]+"))))
+    (emms-player-vlc-sub-sort (remove-if #'null subs))))
+
+;; put the active sub as head of the list
+(defun emms-player-vlc-sub-sort (subs)
+  (let* ((fn (lambda (x) (not (car x))))
+         (fst (dropwhile fn subs))
+         (snd (takewhile fn subs)))
+    (append fst snd)))
+
+(defun emms-player-vlc-inc-idx (string)
+  (cadr (cadr (emms-player-vlc-sub-list string))))
+
+(defun emms-player-vlc-next-sub-filter (p string)
+  (let ((idx (emms-player-vlc-inc-idx string)))
+    (cond ((null idx)
+           (set-process-filter p nil)
+           (message "none"))
+          (t
+           (set-process-filter p 'emms-player-vlc-get-sub-filter)
+           (process-send-string p (format "strack %d\nstrack\n" idx))))))
+
+(defun emms-player-vlc-get-sub-filter (p string)
+  (set-process-filter p nil)
+  (message "%s" (caddr (car (emms-player-vlc-sub-list string)))))
 
 (defun emms-player-vlc-current-sub (lines)
   (mapcar (lambda (x)
@@ -60,36 +96,7 @@
                   (list idx (- (length lines) 3) title))))
           lines))
 
-(defun emms-player-vlc-get-subtitle ()
-  (let* ((proc emms-player-simple-process-name)
-          (oldp (with-current-buffer proc (point))))
-    (process-send-string proc "strack\n")
-    (accept-process-output (get-process proc) 0 100)
-    (let* ((input (with-current-buffer proc (buffer-substring oldp (point))))
-           (lines (split-string input "\r\n")))
-      (car (remove-if #'null (emms-player-vlc-current-sub lines))))))
-
-(defun emms-player-vlc-prev-subtitle ()
-  (interactive)
-  (message (emms-player-vlc-change-subtitle -1)))
-
-(defun emms-player-vlc-next-subtitle ()
-  (interactive)
-  (message (emms-player-vlc-change-subtitle 1)))
-    
-(defun emms-player-vlc-change-subtitle (n)
-  (let* ((proc emms-player-simple-process-name)
-         (sub (emms-player-vlc-get-subtitle)))
-    (cond ((null sub) "none")
-          (t (let* ((idx (car sub))
-                    (tot (cadr sub))
-                    (next (+ (mod idx tot) n)))
-               (process-send-string proc (format "strack %s\n" next))
-               (caddr (emms-player-vlc-get-subtitle)))))))
-
 (emms-player-set emms-player-vlc 'seek 'emms-player-vlc-seek2)
-(emms-player-set emms-player-vlc 'get-sub 'emms-player-vlc-get-subtitle)
-(emms-player-set emms-player-vlc 'prev-sub 'emms-player-vlc-prev-subtitle)
 (emms-player-set emms-player-vlc 'next-sub 'emms-player-vlc-next-subtitle)
 
 ;; > strack
