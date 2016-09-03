@@ -45,14 +45,14 @@
     (process-send-string p "strack\n")))
 
 ;; bleh, bother to learn *lisp when you have erlang :)
-(defun takewhile (c lst)
-  (if (funcall c (car lst))
-      (cons (car lst) (takewhile c (cdr lst)))
+(defun takewhile (p lst)
+  (if (funcall p (car lst))
+      (cons (car lst) (takewhile p (cdr lst)))
     nil))
 
-(defun dropwhile (c lst)
-  (if (funcall c (car lst))
-      (dropwhile c (cdr lst))
+(defun dropwhile (p lst)
+  (if (funcall p (car lst))
+      (dropwhile p (cdr lst))
     lst))
 
 (defun emms-player-vlc-sub-list (string)
@@ -63,7 +63,7 @@
                               (string-to-number (match-string 1 x))
                               (match-string 2 x))))
                   (split-string string "[\r\n]+"))))
-    (emms-player-vlc-sub-sort (remove-if #'null subs))))
+    (emms-player-vlc-sub-sort (remq nil subs))))
 
 ;; put the active sub as head of the list
 (defun emms-player-vlc-sub-sort (subs)
@@ -87,14 +87,6 @@
 (defun emms-player-vlc-get-sub-filter (p string)
   (set-process-filter p nil)
   (message "%s" (caddr (car (emms-player-vlc-sub-list string)))))
-
-(defun emms-player-vlc-current-sub (lines)
-  (mapcar (lambda (x)
-            (if (string-match "\\([0-9][0-9]*\\) - \\(.*\\) \\*$" x)
-                (let ((idx (string-to-number (match-string 1 x)))
-                      (title (match-string 2 x)))
-                  (list idx (- (length lines) 3) title))))
-          lines))
 
 (emms-player-set emms-player-vlc 'seek 'emms-player-vlc-seek2)
 (emms-player-set emms-player-vlc 'next-sub 'emms-player-vlc-next-subtitle)
