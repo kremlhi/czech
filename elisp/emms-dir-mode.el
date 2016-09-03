@@ -109,15 +109,20 @@
 
 (defun emms-dir-list (path)
   (let* ((epath (expand-file-name path))
+         (new (null (emms-dir-filter-buf epath)))
          (buf (emms-dir-playlist-buf epath))
+         (pns)
          (inhibit-read-only t))
     (with-current-buffer buf
+      (switch-to-buffer buf)
       (setq emms-playlist-buffer buf)
       (setq emms-playlist-buffer-p t)
       (setq default-directory epath)
+      (setq pns (emms-dir-save-positions))
       (emms-playlist-clear)
-      (switch-to-buffer buf)
       (emms-dir-insert-stuff epath)
+      (unless new
+        (emms-dir-restore-positions pns))
       buf)))
 
 (defun emms-dir-insert-stuff (epath)
@@ -130,9 +135,21 @@
 
 (defun emms-dir-revert (&optional _arg _noconfirm)
   (widen)
-  (let ((inhibit-read-only t))
+  (let ((pns (emms-dir-save-positions))
+        (inhibit-read-only t))
     (emms-playlist-clear)
-    (emms-dir-insert-stuff default-directory)))
+    (emms-dir-insert-stuff default-directory)
+    (emms-dir-restore-positions pns)))
+
+(defun emms-dir-save-positions ()
+  (mapcar (lambda (w)
+            (cons w (window-point w)))
+          (get-buffer-window-list nil 0 t)))
+
+(defun emms-dir-restore-positions (positions)
+  (dolist (win-file-pos positions)
+    (with-selected-window (car win-file-pos)
+      (goto-char (cdr win-file-pos)))))
 
 (defun emms-seek-fbackward ()
   (interactive)
