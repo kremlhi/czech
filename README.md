@@ -8,6 +8,8 @@ $ make
 
 Put this stuff in your ~/.emacs.d/init.el or ~/.emacs:
 
+(setq emms-playlist-default-major-mode 'emms-dir-mode)
+
 (defun erl-root ()
   (or (getenv "OTP_ROOT")
       (shell-command-to-string
