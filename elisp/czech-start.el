@@ -1,5 +1,5 @@
 (require 'emms-dir-mode)
-(require 'erl-service)
+(require 'distel)
 (eval-when-compile
   (require 'cl))
 
@@ -8,6 +8,15 @@
                         (concat (file-name-directory load-file-name)
                                 "../ebin")))
 (defvar czech-erlang-node nil)
+
+(defun czech-start-hook (node _fsm)
+  (setq czech-erlang-node node)
+  (czech-start))
+
+(defun czech-setup ()
+  (distel-setup)
+  (setq emms-playlist-default-major-mode 'emms-dir-mode)
+  (add-hook 'erl-nodeup-hook 'czech-start-hook))
 
 (defun czech-read-node ()
   (or czech-erlang-node
