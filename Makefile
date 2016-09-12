@@ -25,5 +25,5 @@ dialyze:
 	dialyzer -Wunderspecs --src src
 
 clean:
-	rm -f $(BEAMS) $(APP) $(AOUT)
+	rm -f $(BEAM) $(APP) $(AOUT)
 	rm -rf $(DSYM)
