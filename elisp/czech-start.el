@@ -16,16 +16,17 @@
 (defun czech-setup ()
   (distel-setup)
   (setq emms-playlist-default-major-mode 'emms-dir-mode)
-  (add-hook 'erl-nodeup-hook 'czech-start-hook))
+  (add-hook 'erl-nodeup-hook 'czech-start-hook)
+  (add-hook 'emms-player-started-hook 'czech-set-player-active)
+  (add-hook 'emms-player-stopped-hook 'czech-set-player-inactive);user interact
+  (add-hook 'emms-player-finished-hook 'czech-set-player-inactive)
+  t)
 
 (defun czech-read-node ()
   (or czech-erlang-node
       (setq czech-erlang-node (erl-target-node))))
 
 (defun czech-start ()
-  (add-hook 'emms-player-started-hook 'czech-set-player-active)
-  (add-hook 'emms-player-stopped-hook 'czech-set-player-inactive) ;user interaction
-  (add-hook 'emms-player-finished-hook 'czech-set-player-inactive)
   (erl-spawn
     (let ((node (czech-read-node)))
       (setq erl-trap-exit t)
@@ -108,19 +109,20 @@
           ((eq key 'ff) (funcall (local-key-binding ".")))
           ((eq key 'skip_next) (funcall (local-key-binding "n")))
           ((eq key 'skip_prev) (funcall (local-key-binding "p")))
-          ((eq key 'sttl) (funcall (local-key-binding "8")))
+          ;; ((eq key 'sttl) (funcall (local-key-binding "8")))
+          ((eq key 'd8) (funcall (local-key-binding "8")))
 
           (t (message "key %s" key)))))
 
 (defun czech-alt-tab ()
-  (setq czech-player-active (not czech-player-active))
   (if czech-player-active
-      (ns-raise-vlc)
-    (ns-raise-emacs)
-    czech-player-active))
+      (ns-raise-emacs)
+    (ns-raise-vlc))
+  (setq czech-player-active (not czech-player-active)))
 
 (defun czech-set-player-active ()
   (setq czech-player-active t))
+
 (defun czech-set-player-inactive ()
   (setq czech-player-active nil))
 
