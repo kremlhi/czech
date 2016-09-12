@@ -1,5 +1,5 @@
 (require 'emms-dir-mode)
-(require 'erl-service)
+(require 'distel)
 (eval-when-compile
   (require 'cl))
 
@@ -8,6 +8,14 @@
                         (concat (file-name-directory load-file-name)
                                 "../ebin")))
 (defvar czech-erlang-node nil)
+
+(defun czech-start-hook (node _fsm)
+  (setq czech-erlang-node node)
+  (czech-start))
+
+(defun czech-setup ()
+  (distel-setup)
+  (add-hook 'erl-nodeup-hook 'czech-start-hook))
 
 (defun czech-read-node ()
   (or czech-erlang-node
@@ -20,7 +28,7 @@
   (erl-spawn
     (let ((node (czech-read-node)))
       (setq erl-trap-exit t)
-      (erl-ping node)
+      (call-interactively 'erl-ping node)
       (czech-add-code-path node))))
 
 (defun czech-add-code-path (node)

@@ -8,47 +8,30 @@ $ make
 
 Put this stuff in your ~/.emacs.d/init.el or ~/.emacs:
 
-(setq emms-playlist-default-major-mode 'emms-dir-mode)
-
 (defun erl-root ()
   (or (getenv "OTP_ROOT")
       (shell-command-to-string
        "erl -noinput -eval 'io:format(\"~s\",[code:root_dir()]),halt().'")))
 
-(defun cond-load-distel ()
-  (let ((distel (concat <PATH TO DISTEL> "/distel/elisp"))
-        (czech (concat <PATH TO CZECH> "/czech/elisp")))
-    (when (file-exists-p distel)
-      (add-to-list 'load-path distel)
-      (require 'distel)
-      (distel-setup)
-      (when (file-exists-p czech)
-        (add-to-list 'load-path czech)
-        (require 'czech-start)))))
+(add-to-list
+   'load-path
+       (car (file-expand-wildcards (concat (erl-root) "/lib/tools-*/emacs"))))
+(add-to-list 'load-path (concat (getenv "HOME") "/share/distel/elisp"))
+(add-to-list 'load-path (concat (getenv "HOME") "/share/czech/elisp"))
 
-(defun set-erlang-dir (dir)
-  (let ((bin-dir (expand-file-name "bin" dir))
-        (tools-dirs (file-expand-wildcards
-                     (concat dir "/lib/tools-*/emacs"))))
-    (when tools-dirs
-      (add-to-list 'load-path (car tools-dirs))
-      (add-to-list 'exec-path bin-dir)
-      (setq erlang-root-dir dir)
-      (setq erl-nodename-cache (intern (concat "emacs@" (system-name))))
-      (setq inferior-erlang-machine-options
-            (list "-name" (symbol-name erl-nodename-cache)))
-      (require 'erlang-start)
-      (cond-load-distel)))))
-(set-erlang-dir (erl-root))
+(setq inferior-erlang-machine-options
+      (list "-name" (concat "emacs@" (system-name))))
 
-(defun czech-start-hook (node _fsm)
-  (setq czech-erlang-node node)
-  (czech-start))
-(add-hook 'erl-nodeup-hook 'czech-start-hook)
+(require 'czech-start)
+(czech-setup)
 
 M-x load-file <your init file>
 
 TODO:
+* make sttl button work
+* put a '*' in emms-player-started-hook
+* add abnormal hooks *-functions to czech-start.el
+* make it easier to ins
 * say hello to TV if p8 is active and wake up display
 * negative test cases (send #ind_err{})
 
