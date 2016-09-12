@@ -15,6 +15,7 @@
 
 (defun czech-setup ()
   (distel-setup)
+  (setq emms-playlist-default-major-mode 'emms-dir-mode)
   (add-hook 'erl-nodeup-hook 'czech-start-hook))
 
 (defun czech-read-node ()
