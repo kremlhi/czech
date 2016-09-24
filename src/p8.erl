@@ -16,13 +16,13 @@
 
 -include("p8.hrl").
 
--record(state, {fd                 :: port(),
-                timeout = infinity :: integer() | infinity,
-                ctlproc = []       :: pid(),
-                recvbuf = <<>>     :: binary(),
-                info               :: fun(),
-                err                :: fun(),
-                pretty             :: fun()}).
+-record(state, {fd             :: port(),
+                timeout = 1000 :: integer() | infinity,
+                ctlproc = []   :: pid(),
+                recvbuf = <<>> :: binary(),
+                info           :: fun(),
+                err            :: fun(),
+                pretty         :: fun()}).
 
 -type state() :: #state{}.
 
