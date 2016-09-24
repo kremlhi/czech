@@ -36,6 +36,7 @@ TODO:
 * negative test cases (send #ind_err{})
 
 For Mac haters:
-* czech.el: use of AppleScript to switch between VLC and Emacs
-* czech.erl: caffeinate(1) to wake up sleepy Macs
-* p8.erl: p8 USB device hardcoded to /dev/cu.usbmodemv2_r1
+---------------
+* elisp/czech.el: use of AppleScript to switch between VLC and Emacs
+* src/czech.erl: caffeinate(1) to wake up sleepy Macs
+* src/p8.erl: p8 USB device hardcoded to /dev/cu.usbmodemv2_r1
