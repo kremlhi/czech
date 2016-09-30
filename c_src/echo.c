@@ -71,6 +71,11 @@ reply(void *buf, int len)
             obuf[1] = 0x01;
             p8write(1, obuf, 2);
             break;
+        case P8_CMD_GET_HDMI_VSN:
+            obuf[0] = p[1];
+            obuf[1] = 0x05;
+            p8write(1, obuf, 2);
+            break;
         case P8_CMD_GET_PADDR:
             obuf[0] = p[1];
             memcpy(obuf+1, "\x20\x00", 2);
