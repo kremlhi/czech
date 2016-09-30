@@ -151,7 +151,7 @@ scecop(Op) ->
         ?mwhen(CEC_MENU_REQUEST);
         ?mwhen(CEC_MENU_STATUS);
         ?mwhen(CEC_USER_CONTROL_PRESSED);
-        ?mwhen(CEC_USER_CONTROL_RELEASE);
+        ?mwhen(CEC_USER_CONTROL_RELEASED);
         ?mwhen(CEC_GIVE_DEVICE_POWER_STATUS);
         ?mwhen(CEC_REPORT_POWER_STATUS);
         ?mwhen(CEC_FEATURE_ABORT);
