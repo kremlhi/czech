@@ -1,5 +1,7 @@
-(require 'emms-dir-mode)
+(require 'erlang)
 (require 'distel)
+(require 'emms-setup)
+(require 'emms-dir-mode)
 (eval-when-compile
   (require 'cl))
 
@@ -15,6 +17,10 @@
 
 (defun czech-setup ()
   (distel-setup)
+  (emms-standard)
+  (emms-default-players)
+  (setq emms-setup-default-player-list
+      '(emms-player-vlc emms-player-vlc-playlist))
   (setq emms-playlist-default-major-mode 'emms-dir-mode)
   (add-hook 'erl-nodeup-hook 'czech-start-hook)
   (add-hook 'emms-player-started-hook 'czech-set-player-active)
@@ -27,6 +33,7 @@
       (setq czech-erlang-node (erl-target-node))))
 
 (defun czech-start ()
+  (interactive)
   (erl-spawn
     (let ((node (czech-read-node)))
       (setq erl-trap-exit t)
