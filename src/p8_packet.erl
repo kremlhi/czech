@@ -1,5 +1,11 @@
 -module(p8_packet).
 
+-compile(export_all).
+
+%% TODO: the payload (params) of #cmd_tx{} and #ind_rx{} seem to be
+%% able to be bigger than one byte, optimization would be to pack more
+%% bits
+
 -include("p8.hrl").
 -include("czech.hrl").
 
@@ -14,10 +20,10 @@ decode(B) ->
     decode(B, [], <<>>).
 
 -spec ack_ops(cmd_tx()) -> [byte()].
-ack_ops(#cmd_tx{flags=Flags, op=Op, params=Params}) ->
+ack_ops(#cmd_tx{flags = Flags, op = Op, params = Params}) ->
     F = [p8_packet:cmd_tx_flag(X) || {X,_} <- Flags],
     O = [?P8_CMD_TX || X <- [Op], X =/= undefined],
-    P = [?P8_CMD_TX || _ <- Params],
+    P = [?P8_CMD_TX || <<_>> <= Params],
     S = [?P8_CMD_TX_EOM], %src/dest is mandatory
     F ++ O ++ P ++ S.
 
@@ -33,20 +39,20 @@ cmd_tx_flag(X) ->
 -spec encode1(packet()) -> {<<_:32,_:_*8>>,binary()}.
 encode1(R) ->
     case R of
-        #cmd{op=Op, param=Param} ->
+        #cmd{op = Op, param = Param} ->
             cmd_encode(Op, Param);
-        #cmd_tx{flags=Flags,
-                src=Src, dest=Dest,
-                op=Op, params=Params} ->
+        #cmd_tx{flags = Flags,
+                src = Src, dest = Dest,
+                op = Op, params = Params} ->
             cmd_tx_encode(Flags, Src, Dest, Op, Params);
-        #ind_ack{ack=Ack, op=Op} ->
+        #ind_ack{ack = Ack, op = Op} ->
             ind_ack_encode(Ack, Op);
-        #ind_err{type=Type, line=Line, time=Time} ->
+        #ind_err{type = Type, line = Line, time = Time} ->
             ind_err_encode(Type, Line, Time);
-        #ind_tx_ack{ack=Ack} ->
+        #ind_tx_ack{ack = Ack} ->
             ind_tx_ack_encode(Ack);
-        #ind_rx{ack=Ack, src=Src, dest=Dest,
-                op=Op, params=Params} ->
+        #ind_rx{ack = Ack, src = Src, dest = Dest,
+                op = Op, params = Params} ->
             ind_rx_encode(Ack, Src, Dest, Op, Params)
     end.
 
@@ -81,12 +87,12 @@ ind_tx_ack_encode(Ack) ->
     <<?BEG,X,?END>>.
 
 
-%% ack=0|1 src dest op [params]
+%% ack = 0|1 src dest op [params]
 
 ind_rx_encode(Ack, Src, Dest, Op, Params) ->
     ind_rx_enc_addr(Ack, Src, Dest, Op, Params).
 
-ind_rx_enc_addr(Ack, Src, Dest, undefined, []) ->
+ind_rx_enc_addr(Ack, Src, Dest, undefined, <<>>) ->
     ind_rx_enc_start(Ack, <<Src:4,Dest:4>>);
 ind_rx_enc_addr(Ack, Src, Dest, Op, Params) ->
     B1 = ind_rx_enc_start(Ack, <<Src:4,Dest:4>>),
@@ -96,17 +102,17 @@ ind_rx_enc_addr(Ack, Src, Dest, Op, Params) ->
 ind_rx_enc_start(Ack, B) ->
     <<?BEG,0:1,Ack:1,?P8_IND_RX_START:6,B/binary,?END>>.
 
-ind_rx_enc_op(Ack, Op, []) ->
+ind_rx_enc_op(Ack, Op, <<>>) ->
     ind_rx_enc_end(Ack, <<Op>>);
 ind_rx_enc_op(Ack, Op, Params) ->
     B = ind_rx_enc_params(Ack, Params),
     <<?BEG,0:1,Ack:1,?P8_IND_RX_NEXT:6,Op,?END,B/binary>>.
 
-ind_rx_enc_params(Ack, [Param]) ->
+ind_rx_enc_params(Ack, Param = <<_>>) ->
     ind_rx_enc_end(Ack, Param);
-ind_rx_enc_params(Ack, [P | Params]) ->
-    B = ind_rx_enc_params(Ack, Params),
-    <<?BEG,0:1,Ack:1,?P8_IND_RX_NEXT:6,P/binary,?END,B/binary>>.
+ind_rx_enc_params(Ack, <<B,Params/binary>>) ->
+    B2 = ind_rx_enc_params(Ack, Params),
+    <<?BEG,0:1,Ack:1,?P8_IND_RX_NEXT:6,B,?END,B2/binary>>.
 
 ind_rx_enc_end(Ack, B) ->
     Eom = 1,
@@ -120,10 +126,11 @@ cmd_tx_encode(Flags, Src, Dest, Op, Params) ->
 cmd_tx_enc_flags(Flags) ->
     <<<<?BEG,(cmd_tx_flag(X)),Y,?END>> || {X,Y} <- Flags>>.
 
-cmd_tx_enc_addr(Src, Dest, undefined, []) ->
+cmd_tx_enc_addr(Src, Dest, undefined, <<>>) ->
     cmd_tx_enc_end(<<Src:4,Dest:4>>);
 cmd_tx_enc_addr(Src, Dest, Op, Params) ->
-    cmd_tx_enc_rest([<<Src:4,Dest:4>>, <<Op>> | Params]).
+    L = [<<X>> || <<X>> <= Params],
+    cmd_tx_enc_rest([<<Src:4,Dest:4>>, <<Op>> | L]).
 
 cmd_tx_enc_rest([B]) ->
     cmd_tx_enc_end(B);
@@ -184,7 +191,7 @@ ind_ack_decode(<<?BEG,X,Op,?END,Rest/binary>>) ->
             ?P8_IND_ACK -> ok;
             ?P8_IND_NACK -> nack
         end,
-    {#ind_ack{ack=V, op=Op},Rest}.
+    {#ind_ack{ack = V, op = Op},Rest}.
 
 ind_err_decode(<<?BEG,X,Rest/binary>>) ->
     T = case X of
@@ -192,17 +199,17 @@ ind_err_decode(<<?BEG,X,Rest/binary>>) ->
             ?P8_IND_ERR_HIGH    -> high;
             ?P8_IND_ERR_LOW     -> low
         end,
-    ind_err_dec_line(Rest, #ind_err{type=T}).
+    ind_err_dec_line(Rest, #ind_err{type = T}).
 
 ind_err_dec_line(<<?END,Rest/binary>>, R) ->
     {R,Rest};
 ind_err_dec_line(<<Line:16,Rest/binary>>, R) ->
-    ind_err_dec_time(Rest, R#ind_err{line=Line}).
+    ind_err_dec_time(Rest, R#ind_err{line = Line}).
 
 ind_err_dec_time(<<?END,Rest/binary>>, R) ->
     {R,Rest};
 ind_err_dec_time(<<Time:32,?END,Rest/binary>>, R) ->
-    {R#ind_err{time=Time},Rest}.
+    {R#ind_err{time = Time},Rest}.
 
 ind_tx_ack_decode(<<?BEG,X,?END,Rest/binary>>) ->
     V = case X of
@@ -212,7 +219,7 @@ ind_tx_ack_decode(<<?BEG,X,?END,Rest/binary>>) ->
             ?P8_IND_TX_TIMEOUT_D -> timeout_d;
             ?P8_IND_TX_TIMEOUT_L -> timeout_l
         end,
-    {#ind_tx_ack{ack=V},Rest}.
+    {#ind_tx_ack{ack = V},Rest}.
 
 
 %% [flags] addr [op [params]]

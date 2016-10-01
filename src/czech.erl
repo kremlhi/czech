@@ -17,31 +17,44 @@
 -record(state, {subs   = []           :: [pid()],
                 mod                   :: module(),
                 adpt                  :: pid(),
-                devtype               :: devtype(),
-                laddr  = ?LADDR_UNREG :: src(),
-                paddr                 :: paddr(),
-                vendor = <<0,21,130>>, %pulse-eight
                 active                :: paddr(),
-                devs   = []           :: [dev()]}).
+                laddr  = ?LADDR_UNREG :: laddr(),
+                devs   = []           :: [dev()],
+                sleep  = false        :: boolean()}).
 
 -type state() :: #state{}.
 
--record(dev, {laddr :: laddr()}).
+-record(dev, {laddr   :: src(),
+              paddr   :: paddr(),
+              vendor  :: binary(),
+              osdname :: binary(),
+              devtype :: devtype(),
+              cecvsn  :: cecvsn()}).
+
+-record(cec, {flags  :: [flag()],
+              src    :: src(),
+              dest   :: dest(),
+              op     :: op(),
+              params :: params()}).
 
 -type dev() :: #dev{}.
 
--type devtype() :: integer().
 -type paddr()   :: <<_:2>>. % n.n.n.n
 -type laddr()   :: 0..14.
 -type src()     :: laddr() | ?LADDR_UNREG.
 -type dest()    :: laddr() | ?LADDR_BROADCAST.
+-type devtype() :: ?DEV_TV | ?DEV_RECDEV | ?DEV_TUNER
+                 | ?DEV_PLAYBDEV | ?DEV_AUDIOSYS.
+-type cecvsn()  :: ?CEC_VSN_1_1 | ?CEC_VSN_1_2  | ?CEC_VSN_1_2A
+                 | ?CEC_VSN_1_3 | ?CEC_VSN_1_3A | ?CEC_VSN_1_4.
 
+-type bint()    :: 0 | 1.
 -type timeval() :: 0..255.
--type flag()    :: {idle,timeval()} | {timeout,timeval()} | {ack_p,timeval()}.
+-type flag()    :: {idle,timeval()} | {timeout,timeval()} | {ack_p,bint()}.
 -type op()      :: 0..255.
--type param()   :: binary().
+-type params()  :: binary().
 
--type cec() :: {cec,{[flag()],src(),dest(),op(),[param()]}}.
+-type cec() :: #cec{}.
 
 %%====================================================================
 %% API
@@ -59,8 +72,8 @@ start_link(Mod, Opts) ->
 
 stop()                 -> gen_server:stop(?SERVER).
 subscribe(Pid)         -> gen_server:call(?SERVER, {subscribe,Pid}).
-send(Dest, Op, Params) -> gen_server:cast(?SERVER, {send,Dest,Op,Params}).
-broadcast(Op, Params)  -> gen_server:cast(?SERVER, {broadcast,Op,Params}).
+send(Dest, Op, Params) -> gen_server:call(?SERVER, {send,Dest,Op,Params}).
+broadcast(Op, Params)  -> gen_server:call(?SERVER, {broadcast,Op,Params}).
 
 %%====================================================================
 %% gen_server callbacks
@@ -71,108 +84,289 @@ init([Mod | _Opts]) ->
     case Mod:open() of
         {ok,H} ->
             State = init_adpt(#state{mod=Mod, adpt=H}),
+            caffeinate(),
+            handle_broadcast(State, ?CEC_REQUEST_ACTIVE_SOURCE, <<>>),
             {ok,State};
         {error,Reason} ->
             {stop,Reason}
     end.
 
-init_adpt(#state{mod=Mod, adpt=H} = State) ->
-    ok = check_adapter(State),
-    DevType = Mod:get_adapter_type(H),
-    ok = set_idle(State, ?LADDR_UNREG, ?LADDR_TV, 3),
-    Laddr = set_laddr(State),
-    Paddr = Mod:get_paddr(H),
-    ok = Mod:set_ack_mask(H, 1, 0),
-    State#state{devtype = DevType,
-                laddr   = Laddr,
-                paddr   = Paddr}.
+init_adpt(#state{mod = Mod, adpt = H} = State) ->
+    ok      = check_adapter(State),
+    Devtype = Mod:get_adapter_type(H),
+    Vendor  = Mod:get_vendor(H),
+    ok      = set_idle(State, ?LADDR_UNREG, ?LADDR_TV, 3),
+    Laddr   = set_laddr(State),
+    Paddr   = Mod:get_paddr(H),
+    Vsn     = Mod:get_hdmi_vsn(H),
+    ok      = Mod:set_ack_mask(H, 1, 0),
+    Dev     = #dev{laddr   = Laddr,
+                   paddr   = Paddr,
+                   vendor  = Vendor,
+                   osdname = list_to_binary(?MODULE_STRING),
+                   devtype = Devtype,
+                   cecvsn  = Vsn},
+    State#state{laddr = Laddr,
+                devs  = [Dev]}.
 
-check_adapter(#state{mod=Mod, adpt=H}) ->
+check_adapter(#state{mod = Mod, adpt = H}) ->
     FwVsn = Mod:get_firmware_vsn(H),
     true = FwVsn > 2,
     ok = Mod:set_controlled(H, 1),
     true = Mod:get_builddate(H) > 0,
     ok.
 
-handle_call({subscribe,Pid}, _, #state{subs=Subs} = State) ->
+handle_call({subscribe,Pid}, _, #state{subs = Subs} = State) ->
     link(Pid),
-    {reply,{ok,self()},State#state{subs=lists:usort([Pid | Subs])}};
-handle_call({update_laddr}, _, State) ->
-    Laddr = set_laddr(State),
-    {reply,Laddr,State#state{laddr=Laddr}}.
+    Reply = {ok,self()},
+    Subs2 = lists:usort([Pid | Subs]),
+    {reply,Reply,State#state{subs = Subs2}};
+handle_call({send,Dest,Op,Params}, _, State) ->
+    Reply = handle_send(State, Dest, Op, Params),
+    {reply,Reply,State};
+handle_call({broadcast,Op,Params}, _, State) ->
+    Reply = handle_broadcast(State, Op, Params),
+    {reply,Reply,State}.
 
 -spec handle_cast(_,state()) -> {'noreply',state()}.
-handle_cast({send,Dest,Op,Params}, State) ->
-    handle_send(State, Dest, Op, Params),
-    {noreply,State};
-handle_cast({broadcast,Op,Params}, State) ->
-    handle_broadcast(State, Op, Params),
+handle_cast(_, State) ->
     {noreply,State}.
 
--spec handle_info({pid(),cec()},state()) -> {'noreply',state()}.
-handle_info({_, {cec,{_,_,_,?CEC_USER_CONTROL_PRESSED,[<<Key>>]}}},
-            #state{subs=Subs} = State) ->
+-spec handle_info({pid(),cec()} | displaysleep,state()) -> {'noreply',state()}.
+handle_info(displaysleep, State) ->
+    {noreply,State#state{sleep = true}};
+handle_info({_, #cec{dest = Laddr,
+                     op = ?CEC_USER_CONTROL_PRESSED}},
+            #state{laddr = Laddr, sleep = true} = State) ->
+    caffeinate(),
+    {noreply,State#state{sleep = false}};
+handle_info({_, #cec{dest = Laddr,
+                     op = ?CEC_USER_CONTROL_PRESSED,
+                     params = <<Key>>}},
+            #state{laddr = Laddr,
+                   subs = Subs} = State) ->
     _ = [handle_keypress(Pid, keycode(Key)) || Pid <- Subs],
     {noreply,State};
-handle_info({_, {cec,{_,_,_,?CEC_USER_CONTROL_RELEASED,[]}}},
-            #state{subs=Subs} = State) ->
+handle_info({_, #cec{dest = Laddr,
+                     op = ?CEC_USER_CONTROL_RELEASED}},
+            #state{laddr = Laddr, subs = Subs} = State) ->
     _ = [handle_keyrel(Pid) || Pid <- Subs],
     {noreply,State};
-handle_info({_, {cec,{_,_,_,?CEC_REPORT_AUDIO_STATUS,[<<M:1,Volume:7>>]}}},
-            #state{subs=Subs} = State) ->
+handle_info({_, #cec{op = ?CEC_REPORT_AUDIO_STATUS,
+                     params = <<M:1,Volume:7>>}},
+            #state{subs = Subs} = State) ->
     Mute = M =:= 1,
     _ = [handle_volume(Pid, Mute, Volume) || Pid <- Subs],
     {noreply,State};
-handle_info({_, {cec,{_,_,_,?CEC_ROUTING_CHANGE,Params}}},
-            #state{paddr=Paddr} = State) ->
-    <<_From:2/binary,To:2/binary>> = list_to_binary(Params),
-    if To =:= Paddr ->
-            timer:sleep(3), % >7 nominal data bit periods
-            handle_send(State, ?LADDR_TV, ?CEC_TEXT_VIEW_ON, []),
-            Params2 = [<<X>> || <<X>> <= Paddr],
-            handle_broadcast(State, ?CEC_ACTIVE_SOURCE, Params2),
-%% FIXME: should move this to only respond to requests
-            handle_send(State, ?LADDR_TV, ?CEC_MENU_STATUS, [<<0>>]),
-            os:cmd("caffeinate -u -t 1");
+handle_info({_, #cec{src = Src,
+                     dest = Laddr,
+                     op = ?CEC_GIVE_DECK_STATUS,
+                     params = _Params}}, % on | off | once
+            #state{laddr = Laddr} = State) ->
+    handle_send(State, Src, ?CEC_DECK_STATUS, <<26>>), %stop
+    {noreply,State};
+handle_info({_, #cec{src = Src,
+                     dest = Laddr,
+                     op = ?CEC_GET_CEC_VERSION,
+                     params = _Params}}, % on | off | once
+            #state{laddr = Laddr, devs = Devs} = State) ->
+    Vsn = cecvsn(Laddr, Devs),
+    handle_send(State, Src, ?CEC_CEC_VERSION, <<Vsn>>),
+    {noreply,State};
+
+handle_info({_, #cec{op = ?CEC_SET_STREAM_PATH,
+                     params = To}},
+            #state{laddr = Laddr, devs = Devs} = State) ->
+    case paddr(Laddr, Devs) of
+        To ->
+            handle_broadcast(State, ?CEC_ACTIVE_SOURCE, To);
+        _ ->
+            ok
+    end,
+    {noreply,State#state{active = To}};
+handle_info({_, #cec{src = Src,
+                     op = ?CEC_ROUTING_CHANGE,
+                     params = <<From:2/binary,To:2/binary>>}},
+            #state{laddr = Laddr, devs = Devs} = State) ->
+    case paddr(Laddr, Devs) of
+        To ->
+            caffeinate(),
+            handle_broadcast(State, ?CEC_ACTIVE_SOURCE, To),
+            handle_send(State, Src, ?CEC_TEXT_VIEW_ON, <<>>),
+            handle_send(State, Src, ?CEC_MENU_STATUS, <<0>>);
+       From ->
+            handle_broadcast(State, ?CEC_INACTIVE_SOURCE, From);
+       <<_,_>> ->
+            ok
+    end,
+    {noreply,State#state{active = To}};
+handle_info({_, #cec{op = ?CEC_ACTIVE_SOURCE,
+                     params = To}},
+            #state{laddr = Laddr,
+                   devs = Devs,
+                   active = Active} = State) ->
+    Paddr = paddr(Laddr, Devs),
+    if Active == Paddr, To == <<0,0>> ->
+            handle_broadcast(State, ?CEC_INACTIVE_SOURCE, Paddr);
        true ->
             ok
     end,
-    {noreply,State#state{active=To}};
-handle_info({_, {cec,{_,_,_,?CEC_GIVE_PHYSICAL_ADDRESS,[]}}},
-            #state{paddr   = Paddr,
-                   devtype = DevType} = State) ->
-    Params = [<<X>> || <<X>> <= Paddr] ++ [<<DevType>>],
+    {noreply,State#state{active = To}};
+
+handle_info({_, #cec{src = Src,
+                     dest = Laddr,
+                     op = ?CEC_GIVE_OSD_NAME}},
+            #state{laddr = Laddr, devs = Devs} = State) ->
+    handle_send(State, Src, ?CEC_SET_OSD_NAME, osdname(Laddr, Devs)),
+    {noreply,State};
+handle_info({_, #cec{dest = Laddr,
+                     op = ?CEC_GIVE_PHYSICAL_ADDRESS}},
+            #state{laddr = Laddr, devs = Devs} = State) ->
+    Params = <<(paddr(Laddr, Devs))/binary,(devtype(Laddr, Devs))>>,
     handle_broadcast(State, ?CEC_REPORT_PHYSICAL_ADDRESS, Params),
     {noreply,State};
-handle_info({_, {cec,{_,_,_,?CEC_GIVE_DEVICE_VENDOR_ID,[]}}},
-            #state{vendor=VendorId} = State) ->
-    Params = [<<X>> || <<X>> <= VendorId],
-    handle_broadcast(State, ?CEC_DEVICE_VENDOR_ID, Params),
+handle_info({_, #cec{dest = Laddr,
+                     op = ?CEC_GIVE_DEVICE_VENDOR_ID}},
+            #state{laddr = Laddr, devs = Devs} = State) ->
+    handle_broadcast(State, ?CEC_DEVICE_VENDOR_ID, vendor(Laddr, Devs)),
     {noreply,State};
-handle_info({_, {cec,{_,_,Laddr,undefined,[]}}}, #state{laddr=Laddr} = State)
-  when Laddr =/= ?LADDR_UNREG ->
-    polling_message(State, Laddr),
+handle_info({_, #cec{src = Src,
+                     dest = Laddr,
+                     op = ?CEC_GIVE_DEVICE_POWER_STATUS}},
+            #state{laddr = Laddr} = State) ->
+    handle_send(State, Src, ?CEC_REPORT_POWER_STATUS, <<0>>), %on
     {noreply,State};
-handle_info({_, {cec,{_,Src,_,_,_}}} = M, #state{devs=Devs} = State) ->
-    info_msg("unhandled message: ~w~n", [M]),
+
+handle_info({_, #cec{dest = Laddr, op = undefined}},
+            #state{laddr = Laddr} = State) ->
+    polling_message(State, Laddr),               %pong
+    {noreply,State};
+handle_info({_, #cec{op = undefined}}, State) -> %ping from someone else
+    {noreply,State};
+
+%% TODO: implement ?CEC_DEVICE_VENDOR_COMMAND and ?CEC_VENDOR_COMMAND_WITH_ID?
+%% handle_info({_, #cec{src = Src,
+%%                      dest = Laddr,
+%%                      op = Op}},
+%%             #state{laddr = Laddr} = State) ->
+%%     handle_send(State, Src, ?CEC_FEATURE_ABORT, <<Op,0>>),
+%%     {noreply,State};
+
+handle_info({_, #cec{src = Src,
+                     op = ?CEC_SET_OSD_NAME,
+                     params = Osdname}},
+            #state{devs = Devs} = State) ->
     [D | Devs2] = take_dev(Src, Devs),
-    {noreply,State#state{devs=[D | Devs2]}};
-handle_info({'EXIT',H,Reason}, #state{adpt=H} = State) ->
+    Devs3 = [D#dev{osdname = Osdname} | Devs2],
+    {noreply,State#state{devs = Devs3}};
+handle_info({_, #cec{src = Src,
+                     op = ?CEC_REPORT_PHYSICAL_ADDRESS,
+                     params = <<Paddr:2/binary,DT>>}},
+            #state{devs = Devs} = State) ->
+    [D | Devs2] = take_dev(Src, Devs),
+    Devs3 = [D#dev{paddr = Paddr, devtype = DT} | Devs2],
+    {noreply,State#state{devs = Devs3}};
+handle_info({_, #cec{src = Src,
+                     op = ?CEC_DEVICE_VENDOR_ID,
+                     params = VendorId}},
+            #state{devs = Devs} = State) ->
+    [D | Devs2] = take_dev(Src, Devs),
+    Devs3 = [D#dev{vendor = VendorId} | Devs2],
+    {noreply,State#state{devs = Devs3}};
+handle_info({_, #cec{}} = M, State) ->
+    warning_msg("unhandled message: ~w~n", [M]),
+    {noreply,State};
+
+handle_info({'EXIT',H,Reason}, #state{adpt = H} = State) ->
     error_msg("adapter ~w died (~p), closing down for today~n", [H, Reason]),
     {stop,Reason,State};
-handle_info({'EXIT',Pid,Reason}, #state{subs=Subs} = State) ->
+handle_info({'EXIT',Pid,Reason}, #state{subs = Subs} = State) ->
     info_msg("subscriber ~w died (~p), removing~n", [Pid, Reason]),
-    {noreply,State#state{subs=Subs -- [Pid]}};
+    {noreply,State#state{subs = Subs -- [Pid]}};
 handle_info(M, State) ->
     warning_msg("unknown message: ~w~n", [M]),
     {noreply,State}.
+
+-spec code_change(_,_,_) -> {'ok',_}.
+code_change(_OldVsn, #state{devs = Devs} = State, _Extra) ->
+    Devs2 = [upgrade_rec(X) || X <- Devs],
+    {ok,State#state{devs = Devs2}}.
+
+-spec terminate(any(),state()) -> no_return().
+terminate(Reason, #state{mod   = Mod,
+                         adpt  = H,
+                         laddr = Laddr,
+                         devs  = Devs} = State) ->
+    warning_msg("GOING DOWN D: ~p~n", [Reason]),
+    handle_send(State, ?LADDR_TV, ?CEC_INACTIVE_SOURCE, paddr(Laddr, Devs)),
+    Mod:set_ack_mask(H, 0, 0),
+    Mod:set_controlled(H, 0),
+    Mod:close(H),
+    ok.
+
+%%====================================================================
+%% Internal functions
+%%====================================================================
+
+-spec polling_message(state(), laddr()) -> 'ok'.
+polling_message(#state{mod = Mod, adpt = H}, Laddr) ->
+    Mod:send(H, [], Laddr, Laddr).
+
+-spec set_idle(state(), src(), dest(), integer()) -> 'ok'.
+set_idle(#state{mod = Mod, adpt = H}, Src, Dest, Time) ->
+    Mod:send(H, [{idle,Time}], Src, Dest).
+
+-spec handle_broadcast(state(), integer(), [binary()]) ->
+                              'ok' | {'error',any()}.
+handle_broadcast(#state{mod = Mod, adpt = H, laddr = Src}, Op, Params) ->
+    Mod:send(H, [{ack_p,1}], Src, ?LADDR_BROADCAST, Op, Params).
+
+-spec handle_send(state(), dest(), integer(), [binary()]) ->
+                         'ok' | {'error',any()}.
+handle_send(#state{mod = Mod, adpt = H, laddr = Src}, Dest, Op, Params) ->
+    Mod:send(H, [{ack_p,0}], Src, Dest, Op, Params).
+
+-spec set_laddr(state()) -> laddr().
+set_laddr(State) ->
+    L = [?LADDR_PLAYBDEV1,
+         ?LADDR_PLAYBDEV2,
+         ?LADDR_PLAYBDEV3],
+    set_laddr(State, L).
+
+set_laddr(State, [Laddr | T]) ->
+    case polling_message(State, Laddr) of
+        ok -> set_laddr(State, T);
+        {error,tx_nack} ->
+            {error,tx_nack} = polling_message(State, Laddr),
+            Laddr
+    end.
+
+paddr(Laddr, Devs) ->
+    [#dev{paddr = Paddr} | _] = take_dev(Laddr, Devs),
+    Paddr.
+
+vendor(Laddr, Devs) ->
+    [#dev{vendor = Vendor} | _] = take_dev(Laddr, Devs),
+    Vendor.
+
+osdname(Laddr, Devs) ->
+    [#dev{osdname = Osdname} | _] = take_dev(Laddr, Devs),
+    Osdname.
+
+devtype(Laddr, Devs) ->
+    [#dev{devtype = DT} | _] = take_dev(Laddr, Devs),
+    DT.
+
+cecvsn(Laddr, Devs) ->
+    [#dev{cecvsn = Vsn} | _] = take_dev(Laddr, Devs),
+    Vsn.
 
 take_dev(Laddr, Devs) ->
     case lists:keytake(Laddr, #dev.laddr, Devs) of
         {value,D,Devs2} ->
             [D | Devs2];
         false ->
-            [#dev{laddr=Laddr} | Devs]
+            [#dev{laddr = Laddr} | Devs]
     end.
 
 handle_keypress(Pid, Key) ->
@@ -192,6 +386,7 @@ keycode(Code) ->
         3 -> left;
         4 -> right;
         13 -> return;
+        %% 14-31 reserved
         32 -> d0;
         33 -> d1;
         34 -> d2;
@@ -205,6 +400,8 @@ keycode(Code) ->
         44 -> cancel; %exit
         48 -> ch_up;
         49 -> ch_down;
+        %% 57-63 reserved
+        64 -> power;
         65 -> volup;
         66 -> voldown;
         68 -> play;
@@ -214,54 +411,35 @@ keycode(Code) ->
         73 -> ff;
         75 -> skip_next;
         76 -> skip_prev;
+        %% 86-95 reserved
+        %% 110-112 reserved
+        113 -> f1_blue;
+        114 -> f2_red;
+        115 -> f3_green;
+        116 -> f4_yellow;
+        117 -> f5;
+        %% 119-255 reserved
         X -> X
     end.
 
--spec code_change(_,_,_) -> {'ok',_}.
-code_change(_OldVsn, State, _Extra) ->
-    {ok,State}.
+upgrade_rec(#dev{} = D) ->
+    D;
+upgrade_rec(D) when element(1, D) == dev ->
+    upgrade_rec2(tuple_to_list(D), 1, #dev{}).
 
--spec terminate(any(),state()) -> no_return().
-terminate(Reason, #state{mod=Mod, adpt=H}) ->
-    warning_msg("GOING DOWN D: ~p~n", [Reason]),
-    Mod:set_ack_mask(H, 0, 0),
-    Mod:set_controlled(H, 0),
-    Mod:close(H),
-    ok.
+upgrade_rec2([], _, R) ->
+    R;
+upgrade_rec2([H | T], N, R) ->
+    R2 = setelement(N, R, H),
+    upgrade_rec2(T, N + 1, R2).
 
-%%====================================================================
-%% Internal functions
-%%====================================================================
-
--spec polling_message(state(), laddr()) -> 'ok'.
-polling_message(#state{mod=Mod, adpt=H}, Laddr) ->
-    Mod:send(H, [], Laddr, Laddr).
-
--spec set_idle(state(), src(), dest(), integer()) -> 'ok'.
-set_idle(#state{mod=Mod, adpt=H}, Src, Dest, Time) ->
-    Mod:send(H, [{idle,Time}], Src, Dest).
-
--spec handle_broadcast(state(), integer(), [binary()]) ->
-                              'ok' | {'error',any()}.
-handle_broadcast(#state{mod=Mod, adpt=H, laddr=Src}, Op, Params) ->
-    Mod:send(H, [{ack_p,1}], Src, ?LADDR_BROADCAST, Op, Params).
-
--spec handle_send(state(), dest(), integer(), [binary()]) ->
-                         'ok' | {'error',any()}.
-handle_send(#state{mod=Mod, adpt=H, laddr=Src}, Dest, Op, Params) ->
-    Mod:send(H, [{ack_p,0}], Src, Dest, Op, Params).
-
--spec set_laddr(state()) -> laddr().
-set_laddr(State) ->
-    L = [?LADDR_PLAYBDEV1,
-         ?LADDR_PLAYBDEV2,
-         ?LADDR_PLAYBDEV3],
-    set_laddr(State, L).
-
-set_laddr(State, [Laddr | T]) ->
-    case polling_message(State, Laddr) of
-        ok -> set_laddr(State, T);
-        {error,tx_nack} ->
-            {error,tx_nack} = polling_message(State, Laddr),
-            Laddr
+caffeinate() ->
+    os:cmd("caffeinate -u -t 1"),
+    L = [string:tokens(X, " ") || X <- string:tokens(os:cmd("pmset -g"), "\n")],
+    case [list_to_integer(X) || ["displaysleep", X] <- L] of
+        [Min] ->
+            Ds = Min*60*1000,
+            erlang:send_after(Ds, self(), displaysleep, []);
+        [] ->
+            ok
     end.
