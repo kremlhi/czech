@@ -4,7 +4,7 @@
                  src :: 0..15,
                  dest :: 0..15,
                  op :: byte(),
-                 params = [] :: [binary()]}).
+                 params = <<>> :: binary()}).
 -record(ind_ack, {ack :: ok | nack,
                   op :: 0..63}).
 -record(ind_err, {type :: timeout | high | low,
@@ -16,7 +16,7 @@
                  src :: 0..15,
                  dest :: 0..15,
                  op :: byte(),
-                 params = [] :: [binary()]}).
+                 params = <<>> :: binary()}).
 
 -type cmd() :: #cmd{}.
 -type cmd_tx() :: #cmd_tx{}.

@@ -228,24 +228,24 @@ cmd_tx_decode(B) ->
     cmd_tx_dec_flags(B, #cmd_tx{}).
 
 cmd_tx_dec_flags(<<?BEG,X,Y,?END,Rest/binary>> = B,
-                 #cmd_tx{flags=Flags} = R) ->
+                 #cmd_tx{flags = Flags} = R) ->
     case X of
         ?P8_CMD_TX_SET_IDLE ->
-            R2 = R#cmd_tx{flags=[{idle,Y} | Flags]},
+            R2 = R#cmd_tx{flags = [{idle,Y} | Flags]},
             cmd_tx_dec_flags(Rest, R2);
         ?P8_CMD_TX_SET_ACK_P ->
-            R2 = R#cmd_tx{flags=[{ack_p,Y} | Flags]},
+            R2 = R#cmd_tx{flags = [{ack_p,Y} | Flags]},
             cmd_tx_dec_flags(Rest, R2);
         ?P8_CMD_TX_SET_TIMEOUT ->
-            R2 = R#cmd_tx{flags=[{timeout,Y} | Flags]},
+            R2 = R#cmd_tx{flags = [{timeout,Y} | Flags]},
             cmd_tx_dec_flags(Rest, R2);
         _ ->
-            R2 = R#cmd_tx{flags=lists:reverse(Flags)},
+            R2 = R#cmd_tx{flags = lists:reverse(Flags)},
             cmd_tx_dec_addr(B, R2)
     end.
 
 cmd_tx_dec_addr(<<?BEG,X,Src:4,Dest:4,?END,Rest/binary>>, R) ->
-    R2 = R#cmd_tx{src=Src, dest=Dest},
+    R2 = R#cmd_tx{src = Src, dest = Dest},
     case X of
         ?P8_CMD_TX ->
             cmd_tx_dec_op(Rest, R2);
@@ -254,7 +254,7 @@ cmd_tx_dec_addr(<<?BEG,X,Src:4,Dest:4,?END,Rest/binary>>, R) ->
     end.
 
 cmd_tx_dec_op(<<?BEG,X,Op,?END,Rest/binary>>, R) ->
-    R2 = R#cmd_tx{op=Op},
+    R2 = R#cmd_tx{op = Op},
     case X of
         ?P8_CMD_TX ->
             cmd_tx_dec_params(Rest, R2);
@@ -262,9 +262,10 @@ cmd_tx_dec_op(<<?BEG,X,Op,?END,Rest/binary>>, R) ->
             cmd_tx_dec_end(Rest, R2)
     end.
 
-cmd_tx_dec_params(<<?BEG,X,B/binary>>, #cmd_tx{params=Acc} = R) ->
-    [B2, Rest] = binary:split(B, <<?END>>),
-    R2 = R#cmd_tx{params=[B2 | Acc]},
+%% TODO: better to cons binaries on a list and then reverse it?
+cmd_tx_dec_params(<<?BEG,X,B/binary>>, #cmd_tx{params = Params} = R) ->
+    [P, Rest] = binary:split(B, <<?END>>),
+    R2 = R#cmd_tx{params = <<Params/binary,P/binary>>},
     case X of
         ?P8_CMD_TX ->
             cmd_tx_dec_params(Rest, R2);
@@ -272,9 +273,8 @@ cmd_tx_dec_params(<<?BEG,X,B/binary>>, #cmd_tx{params=Acc} = R) ->
             cmd_tx_dec_end(Rest, R2)
     end.
 
-cmd_tx_dec_end(Rest, #cmd_tx{params=Params, flags=Flags} = R) ->
-    {R#cmd_tx{params = lists:reverse(Params),
-              flags  = lists:reverse(Flags)},Rest}.
+cmd_tx_dec_end(Rest, #cmd_tx{flags = Flags} = R) ->
+    {R#cmd_tx{flags = lists:reverse(Flags)},Rest}.
 
 
 -spec ind_rx_decode(<<_:32,_:_*8>>) -> {ind_rx(),binary()}.
@@ -282,7 +282,7 @@ cmd_tx_dec_end(Rest, #cmd_tx{params=Params, flags=Flags} = R) ->
 ind_rx_decode(<<?BEG,Eom:1,Ack:1,
                 ?P8_IND_RX_START:6,Src:4,Dest:4,
                 ?END,Rest/binary>>) ->
-    R = #ind_rx{ack=Ack, src=Src, dest=Dest},
+    R = #ind_rx{ack = Ack, src = Src, dest = Dest},
     if Eom =:= 0 ->
             ind_rx_dec_op(Rest, R);
        true ->
@@ -292,7 +292,7 @@ ind_rx_decode(<<?BEG,Eom:1,Ack:1,
 ind_rx_dec_op(<<?BEG,Eom:1,_:1,
                 ?P8_IND_RX_NEXT:6,Op,
                 ?END,Rest/binary>>, R) ->
-    R2 = R#ind_rx{op=Op},
+    R2 = R#ind_rx{op = Op},
     if Eom =:= 0 ->
           ind_rx_dec_next(Rest, R2);
        true ->
@@ -302,9 +302,9 @@ ind_rx_dec_op(<<>>, _) ->
     incomplete.
 
 ind_rx_dec_next(<<?BEG,Eom:1,_Ack:1,?P8_IND_RX_NEXT:6,B/binary>>,
-                #ind_rx{params=Acc} = R) ->
-    [B2, Rest] = binary:split(B, <<?END>>),
-    R2 = R#ind_rx{params=[B2 | Acc]},
+                #ind_rx{params = Params} = R) ->
+    [P, Rest] = binary:split(B, <<?END>>),
+    R2 = R#ind_rx{params = <<Params/binary,P/binary>>},
     if Eom =:= 0 ->
           ind_rx_dec_next(Rest, R2);
        true ->
@@ -313,10 +313,10 @@ ind_rx_dec_next(<<?BEG,Eom:1,_Ack:1,?P8_IND_RX_NEXT:6,B/binary>>,
 ind_rx_dec_next(<<>>, _) ->
     incomplete.
 
-ind_rx_dec_end(Rest, #ind_rx{params=Acc} = R) ->
-    {R#ind_rx{params=lists:reverse(Acc)},Rest}.
+ind_rx_dec_end(Rest, R) ->
+    {R,Rest}.
 
 -spec cmd_decode(<<_:32,_:_*8>>) -> {cmd(),binary()}.
 cmd_decode(<<?BEG,Op,B/binary>>) ->
     [Param, Rest] = binary:split(B, <<?END>>),
-    {#cmd{op=Op, param=Param},Rest}.
+    {#cmd{op = Op, param = Param},Rest}.

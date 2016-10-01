@@ -1,10 +1,12 @@
 -module(p8).
 -behaviour(gen_server).
 
+%% TODO: add mandatory callbacks as -callback
+
 -export([open/0, close/1, controlling_process/2]).
 -export([send/4, send/5, send/6]).
 -export([get_adapter_type/1, get_builddate/1, get_firmware_vsn/1,
-         get_paddr/1]).
+         get_paddr/1, get_hdmi_vsn/1, get_vendor/1]).
 -export([set_ack_mask/3, set_controlled/2]).
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -52,6 +54,8 @@ get_adapter_type(H) -> gen_server:call(H, {get_adapter_type}).
 get_builddate(H)    -> gen_server:call(H, {get_builddate}).
 get_firmware_vsn(H) -> gen_server:call(H, {get_firmware_vsn}).
 get_paddr(H)        -> gen_server:call(H, {get_paddr}).
+get_hdmi_vsn(H)     -> gen_server:call(H, {get_hdmi_vsn}).
+get_vendor(H)       -> gen_server:call(H, {get_vendor}).
 
 set_controlled(H, Mode) -> gen_server:call(H, {set_controlled,Mode}).
 set_ack_mask(H, X, Y)   -> gen_server:call(H, {set_ack_mask,X,Y}).
@@ -89,15 +93,15 @@ handle_call({controlling_process,Ncpid}, {Pid,_},
             {reply,ok,State#state{ctlproc=Ncpid}}
     end;
 handle_call({send,Flags,Src,Dest}, _, #state{fd=S} = State) ->
-    M = {cec,{Flags,Src,Dest,undefined,[]}},
+    M = {cec,Flags,Src,Dest,undefined,<<>>},
     Res = handle_send(S, State, M),
     {reply,Res,State};
 handle_call({send,Flags,Src,Dest,Op}, _, #state{fd=S} = State) ->
-    M = {cec,{Flags,Src,Dest,Op,[]}},
+    M = {cec,Flags,Src,Dest,Op,<<>>},
     Res = handle_send(S, State, M),
     {reply,Res,State};
 handle_call({send,Flags,Src,Dest,Op,Params}, _, #state{fd=S} = State) ->
-    M = {cec,{Flags,Src,Dest,Op,Params}},
+    M = {cec,Flags,Src,Dest,Op,Params},
     Res = handle_send(S, State, M),
     {reply,Res,State};
 handle_call({get_adapter_type}, _, #state{fd=S} = State) ->
@@ -130,6 +134,18 @@ handle_call({get_firmware_vsn}, _, #state{fd=S} = State) ->
 handle_call({get_paddr}, _, #state{fd=S} = State) ->
     Req = {cmd_get,?P8_CMD_GET_PADDR},
     R = handle_cmd_get(S, State, Req),
+    {reply,R,State};
+handle_call({get_hdmi_vsn}, _, #state{fd=S} = State) ->
+    Req = {cmd_get,?P8_CMD_GET_HDMI_VSN},
+    R = case handle_cmd_get(S, State, Req) of
+            <<Vsn>> ->
+                Vsn;
+            {error,Reason} ->
+                {error,Reason}
+        end,
+    {reply,R,State};
+handle_call({get_vendor}, _, State) ->
+    R = <<0,21,130>>, %pulse-eight
     {reply,R,State};
 handle_call({set_controlled,Mode}, _, #state{fd=S} = State) ->
     Req = {cmd_set,?P8_CMD_SET_CONTROLLED,<<Mode>>},
@@ -183,14 +199,14 @@ terminate(_Reason, #state{fd=S}) ->
 %%====================================================================
 
 indtocec(#ind_rx{ack=Ack, src=Src, dest=Dest, op=Op, params=Params}) ->
-    {cec,{[{ack_p,Ack}],Src,Dest,Op,Params}};
+    {cec,[{ack_p,Ack}],Src,Dest,Op,Params};
 indtocec(#ind_err{type=Type, line=Line, time=Time}) ->
     {error,{Type,Line,Time}}.
 
 notify(Pid, Msg) ->
     Pid ! {self(),Msg}.
 
-handle_send(S, State, {cec,{Flags,Src,Dest,Op,Params}}) ->
+handle_send(S, State, {cec,Flags,Src,Dest,Op,Params}) ->
     Req = #cmd_tx{flags=Flags,
                   src=Src, dest=Dest,
                   op=Op, params=Params},
@@ -216,7 +232,9 @@ cec_recv_rest(S, State, [Op | T], [M | Ms], Result) ->
         #ind_ack{ack=ok, op=Op} ->
             cec_recv_rest(S, State, T, Ms, Result);
         #ind_ack{ack=Nack, op=Op} ->
-            cec_recv_rest(S, State, T, Ms, Nack)
+            cec_recv_rest(S, State, T, Ms, Nack);
+        #ind_tx_ack{ack=Nack} when Nack =/= ok ->
+            {error,Nack}
     end;
 cec_recv_rest(S, State, Exp, [], Result) ->
     Ms = recv_response(S, State),
