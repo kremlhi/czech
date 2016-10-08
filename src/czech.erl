@@ -1,7 +1,7 @@
 -module(czech).
 -behaviour(gen_server).
 
--export([start_link/0, start_link/1, start_link/2, stop/0,
+-export([start_link/1, start_link/2, stop/0,
          subscribe/1, send/3, broadcast/2]).
 
 %% Callbacks
@@ -19,8 +19,7 @@
                 adpt                  :: pid(),
                 active                :: paddr(),
                 laddr  = ?LADDR_UNREG :: laddr(),
-                devs   = []           :: [dev()],
-                sleep  = false        :: boolean()}).
+                devs   = []           :: [dev()]}).
 
 -type state() :: #state{}.
 
@@ -60,9 +59,6 @@
 %% API
 %%====================================================================
 
-start_link() ->
-    start_link(p8).
-
 start_link(Mod) ->
     start_link(Mod, []).
 
@@ -84,7 +80,7 @@ init([Mod | _Opts]) ->
     case Mod:open() of
         {ok,H} ->
             State = init_adpt(#state{mod=Mod, adpt=H}),
-            caffeinate(),
+            handle_activate(H),
             handle_broadcast(State, ?CEC_REQUEST_ACTIVE_SOURCE, <<>>),
             {ok,State};
         {error,Reason} ->
@@ -132,14 +128,7 @@ handle_call({broadcast,Op,Params}, _, State) ->
 handle_cast(_, State) ->
     {noreply,State}.
 
--spec handle_info({pid(),cec()} | displaysleep,state()) -> {'noreply',state()}.
-handle_info(displaysleep, State) ->
-    {noreply,State#state{sleep = true}};
-handle_info({_, #cec{dest = Laddr,
-                     op = ?CEC_USER_CONTROL_PRESSED}},
-            #state{laddr = Laddr, sleep = true} = State) ->
-    caffeinate(),
-    {noreply,State#state{sleep = false}};
+-spec handle_info({pid(),cec()},state()) -> {'noreply',state()}.
 handle_info({_, #cec{dest = Laddr,
                      op = ?CEC_USER_CONTROL_PRESSED,
                      params = <<Key>>}},
@@ -153,10 +142,9 @@ handle_info({_, #cec{dest = Laddr,
     _ = [handle_keyrel(Pid) || Pid <- Subs],
     {noreply,State};
 handle_info({_, #cec{op = ?CEC_REPORT_AUDIO_STATUS,
-                     params = <<M:1,Volume:7>>}},
+                     params = <<Mute:1,Volume:7>>}},
             #state{subs = Subs} = State) ->
-    Mute = M =:= 1,
-    _ = [handle_volume(Pid, Mute, Volume) || Pid <- Subs],
+    _ = [handle_volume(Pid, Mute =:= 1, Volume) || Pid <- Subs],
     {noreply,State};
 handle_info({_, #cec{src = Src,
                      dest = Laddr,
@@ -187,10 +175,11 @@ handle_info({_, #cec{op = ?CEC_SET_STREAM_PATH,
 handle_info({_, #cec{src = Src,
                      op = ?CEC_ROUTING_CHANGE,
                      params = <<From:2/binary,To:2/binary>>}},
-            #state{laddr = Laddr, devs = Devs} = State) ->
+            #state{laddr = Laddr, devs = Devs, adpt = H} = State) ->
     case paddr(Laddr, Devs) of
         To ->
-            caffeinate(),
+            %% FIXME: why doesn't this activate the adapter when the TV starts?
+            handle_activate(H),
             handle_broadcast(State, ?CEC_ACTIVE_SOURCE, To),
             handle_send(State, Src, ?CEC_TEXT_VIEW_ON, <<>>),
             handle_send(State, Src, ?CEC_MENU_STATUS, <<0>>);
@@ -273,6 +262,13 @@ handle_info({_, #cec{src = Src,
     [D | Devs2] = take_dev(Src, Devs),
     Devs3 = [D#dev{vendor = VendorId} | Devs2],
     {noreply,State#state{devs = Devs3}};
+handle_info({_, #cec{src = Src,
+                     op = ?CEC_CEC_VERSION,
+                     params = <<Vsn>>}},
+            #state{devs = Devs} = State) ->
+    [D | Devs2] = take_dev(Src, Devs),
+    Devs3 = [D#dev{cecvsn = Vsn} | Devs2],
+    {noreply,State#state{devs = Devs3}};
 handle_info({_, #cec{}} = M, State) ->
     warning_msg("unhandled message: ~w~n", [M]),
     {noreply,State};
@@ -289,8 +285,9 @@ handle_info(M, State) ->
 
 -spec code_change(_,_,_) -> {'ok',_}.
 code_change(_OldVsn, #state{devs = Devs} = State, _Extra) ->
-    Devs2 = [upgrade_rec(X) || X <- Devs],
-    {ok,State#state{devs = Devs2}}.
+    Devs2 = [upgrade_devs(X) || X <- Devs],
+    State2 = upgrade_state(State#state{devs = Devs2}),
+    {ok,State2}.
 
 -spec terminate(any(),state()) -> no_return().
 terminate(Reason, #state{mod   = Mod,
@@ -378,6 +375,9 @@ handle_keyrel(Pid) ->
 handle_volume(Pid, Mute, Volume) ->
     Pid ! {volume,self(),Mute,Volume}.
 
+handle_activate(Pid) ->
+    Pid ! {activate,self()}.
+
 keycode(Code) ->
     case Code of
         0 -> enter; %ok
@@ -422,24 +422,19 @@ keycode(Code) ->
         X -> X
     end.
 
-upgrade_rec(#dev{} = D) ->
+%% quick and dirty way to expand/decrease records (always add/remove the end)
+upgrade_devs(#dev{} = D) ->
     D;
-upgrade_rec(D) when element(1, D) == dev ->
-    upgrade_rec2(tuple_to_list(D), 1, #dev{}).
+upgrade_devs(D) when element(1, D) == dev ->
+    upgrade_rec(tuple_to_list(D), 1, #dev{}).
 
-upgrade_rec2([], _, R) ->
-    R;
-upgrade_rec2([H | T], N, R) ->
+upgrade_state(#state{} = S) ->
+    S;
+upgrade_state(S) when element(1, S) == state ->
+    upgrade_rec(tuple_to_list(S), 1, #state{}).
+
+upgrade_rec([H | T], N, R) when N =< tuple_size(R) ->
     R2 = setelement(N, R, H),
-    upgrade_rec2(T, N + 1, R2).
-
-caffeinate() ->
-    os:cmd("caffeinate -u -t 1"),
-    L = [string:tokens(X, " ") || X <- string:tokens(os:cmd("pmset -g"), "\n")],
-    case [list_to_integer(X) || ["displaysleep", X] <- L] of
-        [Min] ->
-            Ds = Min*60*1000,
-            erlang:send_after(Ds, self(), displaysleep, []);
-        [] ->
-            ok
-    end.
+    upgrade_rec(T, N + 1, R2);
+upgrade_rec(_, _, R) ->
+    R.
