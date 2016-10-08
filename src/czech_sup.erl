@@ -14,7 +14,7 @@ start_link() ->
 
 init(_Args) ->
     Child1 = #{id       => czech,
-               start    => {czech,start_link,[]},
+               start    => {czech,start_link,[p8]},
                restart  => permanent,
                shutdown => 1000,
                type     => worker,

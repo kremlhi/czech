@@ -10,6 +10,7 @@
                         (concat (file-name-directory load-file-name)
                                 "../ebin")))
 (defvar czech-erlang-node nil)
+(defvar czech-idle nil)
 
 (defun czech-start-hook (node _fsm)
   (setq czech-erlang-node node)
@@ -37,6 +38,7 @@
   (erl-spawn
     (let ((node (czech-read-node)))
       (setq erl-trap-exit t)
+      (run-at-time (czech-displaysleep) nil 'czech-set-idle)
       (call-interactively 'erl-ping node)
       (czech-add-code-path node))))
 
@@ -73,11 +75,14 @@
   (erl-receive (node)
       ((['keypress from key]
         (ignore-errors ;don't care about stuff throwing errors
-          (czech-handle-keypress key)))
+          (if czech-idle (czech-handle-activate)
+            (czech-handle-keypress key))))
        (['keyrel from]
         (czech-handle-keyrel))
        (['volume from mute vol]
         (czech-handle-volume mute vol))
+       (['activate from]
+        (czech-handle-activate))
        (['EXIT from reason]
         (message "oshit %s died: %s @%s" from reason node)
         (sit-for 2)
@@ -91,7 +96,7 @@
   (message "volume %s%%%s" vol
            (if (eq mute 'true) " [mute]" "")))
 
-;; czech ! {self(),{cec,{[],0,0,68,[<<68>>]}}}.
+;; czech ! {self(),{cec,[],0,0,68,[<<68>>]}}.
 (defun czech-handle-keypress (key)
   (with-selected-window (selected-window)
     (unless (buffer-live-p emms-playlist-buffer)
@@ -121,15 +126,24 @@
 
           (t (message "key %s" key)))))
 
-(defun czech-alt-tab ()
-  (if czech-player-active
-      (ns-raise-emacs)
-    (ns-raise-vlc))
-  (setq czech-player-active (not czech-player-active)))
+(defun czech-handle-activate ()
+  (message "good morning")
+  (setq czech-idle nil)
+  (shell-command "caffeinate -u -t 1"))
 
+(defun czech-alt-tab ()
+  (cond ((eq czech-player-active t)
+         (ns-raise-emacs)
+         (czech-set-player-inactive))
+        (t
+         (ns-raise-vlc)
+         (czech-set-player-active))))
+
+;; TODO: cancel display sleep timer
 (defun czech-set-player-active ()
   (setq czech-player-active t))
 
+;; TODO: activate display sleep timer
 (defun czech-set-player-inactive ()
   (setq czech-player-active nil))
 
@@ -146,6 +160,20 @@
   (with-selected-frame frame
     (when (display-graphic-p)
       (ns-raise-emacs))))
+
+(defun czech-set-idle ()
+  (run-at-time (czech-displaysleep) nil 'czech-set-idle)
+  (setq czech-idle t))
+
+(defun czech-displaysleep ()
+  (cond ((locate-file "pmset" exec-path)
+         (concat
+          (cadr (assoc "displaysleep"
+                       (mapcar (lambda (x) (cdr (split-string x " +")))
+                               (split-string
+                                (shell-command-to-string "pmset -g") "\n"))))
+          " minutes"))
+        (t "11 minutes")))
 
 (provide 'czech-start)
 
