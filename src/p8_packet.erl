@@ -21,7 +21,7 @@ decode(B) ->
 
 -spec ack_ops(cmd_tx()) -> [byte()].
 ack_ops(#cmd_tx{flags = Flags, op = Op, params = Params}) ->
-    F = [p8_packet:cmd_tx_flag(X) || {X,_} <- Flags],
+    F = [cmd_tx_flag(X) || {X,_} <- Flags],
     O = [?P8_CMD_TX || X <- [Op], X =/= undefined],
     P = [?P8_CMD_TX || <<_>> <= Params],
     S = [?P8_CMD_TX_EOM], %src/dest is mandatory
