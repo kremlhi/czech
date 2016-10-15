@@ -62,7 +62,7 @@ set_ack_mask(H, X, Y)   -> gen_server:call(H, {set_ack_mask,X,Y}).
 %%====================================================================
 
 extprog() ->
-    ExtPrg = "./p8adpt",
+    ExtPrg = "p8adpt",
     filename:join(czech_app:priv_dir(), ExtPrg).
 
 init([Cpid]) ->
@@ -208,17 +208,15 @@ handle_send(S, State, {cec,Flags,Src,Dest,Op,Params}) ->
             {error,Reason}
     end.
 
-cec_recv_rest(_, _, [], [M], ok) ->
+cec_recv_rest(_, _, [], [M], Result) ->
     case M of
-        #ind_tx_ack{ack = ok} ->
+        #ind_tx_ack{ack = ok} when Result == ok ->
             ok;
         #ind_tx_ack{ack = Nack} ->
             {error,Nack};
-        {error,Reason} ->
-            {error,Reason}
+        _ when Result /= ok ->
+            {error,Result}
     end;
-cec_recv_rest(_, _, [], _, Nack) ->
-    {error,Nack};
 cec_recv_rest(S, State, [Op | T], [M | Ms], Result) ->
     case M of
         #ind_ack{ack = ok, op = Op} ->
@@ -229,8 +227,12 @@ cec_recv_rest(S, State, [Op | T], [M | Ms], Result) ->
             {error,Nack}
     end;
 cec_recv_rest(S, State, Exp, [], Result) ->
-    Ms = recv_response(S, State),
-    cec_recv_rest(S, State, Exp, Ms, Result).
+    case recv_response(S, State) of
+        Ms when is_list(Ms) ->
+            cec_recv_rest(S, State, Exp, Ms, Result);
+       {error,Reason} ->
+           {error,Reason}
+    end.
 
 handle_cmd(S, State, {cmd,Op}) ->
     case request(S, State, #cmd{op = Op}) of
