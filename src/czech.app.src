@@ -1,9 +1,9 @@
 {application, czech, [
-	{description, "HDMI CEC interface"},
-	{vsn, "0.0.1"},
-	{applications, [kernel, stdlib, sasl]},
-	{modules, []},
-	{registered, []},
+    {description, "HDMI CEC interface"},
+    {vsn, "0.0.1"},
+    {applications, [kernel, stdlib, sasl]},
+    {modules, []},
+    {registered, []},
         {mod, {czech_app, []}},
-	{env, []}
+    {env, []}
     ]}.
