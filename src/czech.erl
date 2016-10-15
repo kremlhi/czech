@@ -80,7 +80,6 @@ init([Mod | _Opts]) ->
     case Mod:open() of
         {ok,H} ->
             State = init_adpt(#state{mod=Mod, adpt=H}),
-            handle_activate(H),
             handle_broadcast(State, ?CEC_REQUEST_ACTIVE_SOURCE, <<>>),
             {ok,State};
         {error,Reason} ->
@@ -175,11 +174,11 @@ handle_info({_, #cec{op = ?CEC_SET_STREAM_PATH,
 handle_info({_, #cec{src = Src,
                      op = ?CEC_ROUTING_CHANGE,
                      params = <<From:2/binary,To:2/binary>>}},
-            #state{laddr = Laddr, devs = Devs, adpt = H} = State) ->
+            #state{laddr = Laddr, devs = Devs, subs = Subs} = State) ->
     case paddr(Laddr, Devs) of
         To ->
             %% FIXME: why doesn't this activate the adapter when the TV starts?
-            handle_activate(H),
+            _ = [handle_activate(X) || X <- Subs],
             handle_broadcast(State, ?CEC_ACTIVE_SOURCE, To),
             handle_send(State, Src, ?CEC_TEXT_VIEW_ON, <<>>),
             handle_send(State, Src, ?CEC_MENU_STATUS, <<0>>);
@@ -422,7 +421,7 @@ keycode(Code) ->
         X -> X
     end.
 
-%% quick and dirty way to expand/decrease records (always add/remove the end)
+%% quick and dirty way to expand/decrease records (always add/remove to the end)
 upgrade_devs(#dev{} = D) ->
     D;
 upgrade_devs(D) when element(1, D) == dev ->
