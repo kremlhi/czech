@@ -11,6 +11,7 @@
                                 "../ebin")))
 (defvar czech-erlang-node nil)
 (defvar czech-idle nil)
+(defvar czech-idle-timer nil)
 
 (defun czech-start-hook (node _fsm)
   (setq czech-erlang-node node)
@@ -38,7 +39,8 @@
   (erl-spawn
     (let ((node (czech-read-node)))
       (setq erl-trap-exit t)
-      (run-at-time (czech-displaysleep) nil 'czech-set-idle)
+      (czech-start-idle-timer)
+      (czech-handle-activate)
       (call-interactively 'erl-ping node)
       (czech-add-code-path node))))
 
@@ -141,12 +143,12 @@
          (ns-raise-vlc)
          (czech-set-player-active))))
 
-;; TODO: cancel display sleep timer
 (defun czech-set-player-active ()
+  (czech-cancel-idle-timer)
   (setq czech-player-active t))
 
-;; TODO: activate display sleep timer
 (defun czech-set-player-inactive ()
+  (czech-start-idle-timer)
   (setq czech-player-active nil))
 
 (defun ns-raise-vlc ()
@@ -163,8 +165,20 @@
     (when (display-graphic-p)
       (ns-raise-emacs))))
 
+(defun czech-cancel-idle-timer ()
+  (when czech-idle-timer
+    (cancel-timer czech-idle-timer)
+    (setq czech-idle-timer nil)))
+
+(defun czech-start-idle-timer ()
+  (czech-cancel-idle-timer)
+  (setq czech-idle-timer
+        (run-at-time (czech-displaysleep) nil 'czech-set-idle)))
+
 (defun czech-set-idle ()
-  (run-at-time (czech-displaysleep) nil 'czech-set-idle)
+  (czech-cancel-idle-timer)
+  (setq czech-idle-timer
+        (run-at-time (czech-displaysleep) nil 'czech-set-idle))
   (setq czech-idle t))
 
 (defun czech-displaysleep ()
