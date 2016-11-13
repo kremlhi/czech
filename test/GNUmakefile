@@ -2,7 +2,7 @@ RM  ?= rm -f
 SRC ?= $(wildcard *.erl)
 BEAM = $(SRC:%.erl=%.beam)
 
-all:
+test:
 	ct_run -logdir ct_logs -include ../src -pa ../ebin $(SRC)
 
 clean:

@@ -37,7 +37,7 @@ dialyze: $(PLT)
 	dialyzer -Wunderspecs --plt $(PLT) --src src
 
 test: all
-	$(MAKE) -C test
+	$(MAKE) -C test test
 
 clean:
 	$(MAKE) -C test clean

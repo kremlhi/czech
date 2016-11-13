@@ -3,7 +3,7 @@
 -behaviour(gen_server).
 
 %% czech callbacks
--export([open/0, close/1, controlling_process/2]).
+-export([open/0, open/1, close/1, controlling_process/2]).
 -export([send/4, send/6]).
 -export([get_adapter_type/1, get_builddate/1, get_firmware_vsn/1,
          get_hdmi_vsn/1, get_paddr/1, get_vendor/1]).
@@ -33,8 +33,9 @@
 %% czech callbacks
 %%====================================================================
 
-open()   -> gen_server:start_link(?MODULE, [self()], []).
-close(H) -> gen_server:stop(H).
+open()     -> open([]).
+open(Opts) -> gen_server:start_link(?MODULE, [self() | Opts], []).
+close(H)   -> gen_server:stop(H).
 
 controlling_process(H, Cpid) ->
     gen_server:call(H, {controlling_process,Cpid}).
@@ -63,10 +64,11 @@ extprog() ->
     ExtPrg = "p8adpt",
     filename:join(czech_app:priv_dir(), ExtPrg).
 
-init([Cpid]) ->
+init([Cpid | Opts]) ->
     process_flag(trap_exit, true),
-    Dev = "/dev/cu.usbmodemv2_r1",
-    S = init_port(extprog(), Dev),
+    Dev = proplists:get_value(dev, Opts, "/dev/cu.usbmodemv2_r1"),
+    Extprog = proplists:get_value(extprog, Opts, extprog()),
+    S = init_port(Extprog, Dev),
     {ok,#state{fd = S, ctlproc = Cpid}}.
 
 init_port(ExtPrg, Dev) ->
@@ -78,10 +80,11 @@ init_port(ExtPrg, Dev) ->
     erlang:send_after(0, self(), ping),
     S.
 
--spec handle_call(term(), From, state()) ->
-                  {reply,Reply,state()}
-      when From :: {pid(),reference()},
-           Reply :: ok | {ok,term()} | {error,term()}.
+-spec handle_call(Request, From, state()) ->
+                         {reply,Reply,state()}
+                             when Request :: tuple(),
+                                  From :: {pid(),reference()},
+                                  Reply :: ok | {ok,term()} | {error,term()}.
 handle_call({controlling_process,Ncpid}, {Pid,_},
             #state{ctlproc = Ocpid} = State) ->
     if Pid /= Ocpid ->
@@ -92,59 +95,59 @@ handle_call({controlling_process,Ncpid}, {Pid,_},
             {reply,ok,State#state{ctlproc = Ncpid}}
     end;
 handle_call({send,Flags,Src,Dest,Op,Params}, _, #state{fd = S} = State) ->
-    Resp = handle_send(S, State, {cec,Flags,Src,Dest,Op,Params}),
-    {reply,Resp,State};
+    Reply = handle_send(S, State, {cec,Flags,Src,Dest,Op,Params}),
+    {reply,Reply,State};
 handle_call({get_adapter_type}, _, #state{fd = S} = State) ->
-    Req = {cmd_get,?P8_CMD_GET_ADAPTER_TYPE},
-    Resp = case handle_cmd_get(S, State, Req) of
-               {ok,<<Type>>} ->
-                   {ok,Type};
-               {error,Reason} ->
-                   {error,Reason}
-           end,
-    {reply,Resp,State};
+    Request = {cmd_get,?P8_CMD_GET_ADAPTER_TYPE},
+    Reply = case handle_cmd_get(S, State, Request) of
+                {ok,<<Type>>} ->
+                    {ok,Type};
+                {error,Reason} ->
+                    {error,Reason}
+            end,
+    {reply,Reply,State};
 handle_call({get_builddate}, _, #state{fd = S} = State) ->
-    Req = {cmd_get,?P8_CMD_GET_BUILDDATE},
-    Resp = case handle_cmd_get(S, State, Req) of
-               {ok,<<Date:32>>} ->
-                   {ok,Date};
-               {error,Reason} ->
-                   {error,Reason}
-           end,
-    {reply,Resp,State};
+    Request = {cmd_get,?P8_CMD_GET_BUILDDATE},
+    Reply = case handle_cmd_get(S, State, Request) of
+                {ok,<<Date:32>>} ->
+                    {ok,Date};
+                {error,Reason} ->
+                    {error,Reason}
+            end,
+    {reply,Reply,State};
 handle_call({get_firmware_vsn}, _, #state{fd = S} = State) ->
-    Req = {cmd_get,?P8_CMD_FIRMWARE_VSN},
-    Resp = case handle_cmd_get(S, State, Req) of
-               {ok,<<Vsn:16>>} ->
-                   {ok,Vsn};
-               {error,Reason} ->
-                   {error,Reason}
-           end,
-    {reply,Resp,State};
+    Request = {cmd_get,?P8_CMD_FIRMWARE_VSN},
+    Reply = case handle_cmd_get(S, State, Request) of
+                {ok,<<Vsn:16>>} ->
+                    {ok,Vsn};
+                {error,Reason} ->
+                    {error,Reason}
+            end,
+    {reply,Reply,State};
 handle_call({get_hdmi_vsn}, _, #state{fd = S} = State) ->
-    Req = {cmd_get,?P8_CMD_GET_HDMI_VSN},
-    Resp = case handle_cmd_get(S, State, Req) of
-               {ok,<<Vsn>>} ->
-                   {ok,Vsn};
-               {error,Reason} ->
-                   {error,Reason}
-           end,
-    {reply,Resp,State};
+    Request = {cmd_get,?P8_CMD_GET_HDMI_VSN},
+    Reply = case handle_cmd_get(S, State, Request) of
+                {ok,<<Vsn>>} ->
+                    {ok,Vsn};
+                {error,Reason} ->
+                    {error,Reason}
+            end,
+    {reply,Reply,State};
 handle_call({get_paddr}, _, #state{fd = S} = State) ->
-    Req = {cmd_get,?P8_CMD_GET_PADDR},
-    Resp = handle_cmd_get(S, State, Req),
-    {reply,Resp,State};
+    Request = {cmd_get,?P8_CMD_GET_PADDR},
+    Reply = handle_cmd_get(S, State, Request),
+    {reply,Reply,State};
 handle_call({get_vendor}, _, State) ->
-    Resp = {ok,<<0,21,130>>}, %pulse-eight
-    {reply,Resp,State};
+    Reply = {ok,<<0,21,130>>}, %pulse-eight
+    {reply,Reply,State};
 handle_call({set_controlled,Mode}, _, #state{fd = S} = State) ->
-    Req = {cmd_set,?P8_CMD_SET_CONTROLLED,<<Mode>>},
-    Resp = handle_cmd_set(S, State, Req),
-    {reply,Resp,State};
+    Request = {cmd_set,?P8_CMD_SET_CONTROLLED,<<Mode>>},
+    Reply = handle_cmd_set(S, State, Request),
+    {reply,Reply,State};
 handle_call({set_ack_mask,X,Y}, _, #state{fd = S} = State) ->
-    Req = {cmd_set,?P8_CMD_SET_ACK_MASK,<<X,Y>>},
-    Resp = handle_cmd_set(S, State, Req),
-    {reply,Resp,State}.
+    Request = {cmd_set,?P8_CMD_SET_ACK_MASK,<<X,Y>>},
+    Reply = handle_cmd_set(S, State, Request),
+    {reply,Reply,State}.
 
 -spec handle_cast(_,state()) -> {'noreply',state()}.
 handle_cast(_Req, State) ->

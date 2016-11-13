@@ -14,6 +14,8 @@
 
 -define(SERVER, ?MODULE).
 
+-export_type([flag/0, src/0, dest/0, op/0, params/0]).
+
 -record(state, {subs   = []           :: [pid()],
                 mod                   :: module(),
                 adpt                  :: pid() | 'undefined',
@@ -62,9 +64,11 @@
 
 -callback open() ->
     {ok,pid()} | {error,term()}.
+-callback open(Opts :: list()) ->
+    {ok,pid()} | {error,term()}.
 -callback close(pid()) ->
     ok.
--callback controlling_process(pid(), pid()) ->
+-callback controlling_process(Old :: pid(), New :: pid()) ->
     ok | {error,not_owner}.
 -callback send(pid(), [flag()], src(), dest()) ->
     ok | {error,term()}.
@@ -86,6 +90,7 @@
     ok | {error,term()}.
 -callback set_controlled(pid(), bint()) ->
     ok | {error,term()}.
+-optional_callbacks([open/1]).
 
 start_link(Mod) ->
     start_link(Mod, []).
@@ -333,16 +338,18 @@ terminate(Reason, #state{mod   = Mod,
 %% Internal functions
 %%====================================================================
 
--spec polling_message(state(), laddr()) -> ok | {error,term()}.
+-spec polling_message(state(), laddr()) ->
+                             ok | {error,term()}.
 polling_message(#state{mod = Mod, adpt = H}, Laddr) ->
     Mod:send(H, [], Laddr, Laddr).
 
--spec set_idle(state(), src(), dest(), timeval()) -> ok | {error,term()}.
+-spec set_idle(state(), src(), dest(), timeval()) ->
+                      ok | {error,term()}.
 set_idle(#state{mod = Mod, adpt = H}, Src, Dest, Time) ->
     Mod:send(H, [{idle,Time}], Src, Dest).
 
 -spec handle_broadcast(state(), op(), params()) ->
-                              'ok' | {'error',term()}.
+                              ok | {error,term()}.
 handle_broadcast(#state{mod = Mod, adpt = H, laddr = Src}, Op, Params) ->
     Mod:send(H, [{ack_p,1}], Src, ?LADDR_BROADCAST, Op, Params).
 
