@@ -110,3 +110,8 @@
 %% is one of the reserved numbers
 -define(CEC_NONE, 16#FD).
 
+-record(cec, {flags  :: [czech:flag()],
+              src    :: czech:src(),
+              dest   :: czech:dest(),
+              op     :: czech:op() | 'undefined',
+              params :: czech:params()}).

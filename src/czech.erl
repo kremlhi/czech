@@ -30,11 +30,6 @@
               devtype :: devtype(),
               cecvsn  :: cecvsn()}).
 
--record(cec, {flags  :: [flag()],
-              src    :: src(),
-              dest   :: dest(),
-              op     :: op(),
-              params :: params()}).
 
 -type dev() :: #dev{}.
 

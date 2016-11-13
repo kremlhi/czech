@@ -1,2 +1,5 @@
+czech.plt
 ebin
 priv
+test/*.beam
+test/ct_logs
