@@ -2,7 +2,7 @@
 -behaviour(gen_server).
 
 -export([start_link/1, start_link/2, stop/0,
-         subscribe/1, send/3, broadcast/2]).
+         add_handler/1, send/3, broadcast/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -16,7 +16,7 @@
 
 -export_type([flag/0, src/0, dest/0, op/0, params/0]).
 
--record(state, {subs   = []           :: [pid()],
+-record(state, {handlers   = []       :: [pid()],
                 mod                   :: module(),
                 adpt                  :: pid() | 'undefined',
                 active                :: paddr() | 'undefined',
@@ -100,7 +100,7 @@ start_link(Mod, Opts) ->
                           [{timeout,5000}]).
 
 stop()                 -> gen_server:stop(?SERVER).
-subscribe(Pid)         -> gen_server:call(?SERVER, {subscribe,Pid}).
+add_handler(Pid)        -> gen_server:call(?SERVER, {add_handler,Pid}).
 send(Dest, Op, Params) -> gen_server:call(?SERVER, {send,Dest,Op,Params}).
 broadcast(Op, Params)  -> gen_server:call(?SERVER, {broadcast,Op,Params}).
 
@@ -145,11 +145,10 @@ check_adapter(#state{mod = Mod, adpt = H}) ->
     ok         = Mod:set_controlled(H, 1),
     ok.
 
-handle_call({subscribe,Pid}, _, #state{subs = Subs} = State) ->
+handle_call({add_handler,Pid}, _, #state{handlers = Hs} = State) ->
     link(Pid),
     Reply = {ok,self()},
-    Subs2 = lists:usort([Pid | Subs]),
-    {reply,Reply,State#state{subs = Subs2}};
+    {reply,Reply,State#state{handlers = lists:usort([Pid | Hs])}};
 handle_call({send,Dest,Op,Params}, _, State) ->
     Reply = handle_send(State, Dest, Op, Params),
     {reply,Reply,State};
@@ -165,18 +164,18 @@ handle_info({_, #cec{dest = Laddr,
                      op = ?CEC_USER_CONTROL_PRESSED,
                      params = <<Key>>}},
             #state{laddr = Laddr,
-                   subs = Subs} = State) ->
-    _ = [handle_keypress(Pid, keycode(Key)) || Pid <- Subs],
+                   handlers = Hs} = State) ->
+    _ = [handle_keypress(Pid, keycode(Key)) || Pid <- Hs],
     {noreply,State};
 handle_info({_, #cec{dest = Laddr,
                      op = ?CEC_USER_CONTROL_RELEASED}},
-            #state{laddr = Laddr, subs = Subs} = State) ->
-    _ = [handle_keyrel(Pid) || Pid <- Subs],
+            #state{laddr = Laddr, handlers = Hs} = State) ->
+    _ = [handle_keyrel(Pid) || Pid <- Hs],
     {noreply,State};
 handle_info({_, #cec{op = ?CEC_REPORT_AUDIO_STATUS,
                      params = <<Mute:1,Volume:7>>}},
-            #state{subs = Subs} = State) ->
-    _ = [handle_volume(Pid, Mute =:= 1, Volume) || Pid <- Subs],
+            #state{handlers = Hs} = State) ->
+    _ = [handle_volume(Pid, Mute =:= 1, Volume) || Pid <- Hs],
     {noreply,State};
 handle_info({_, #cec{src = Src,
                      dest = Laddr,
@@ -207,11 +206,11 @@ handle_info({_, #cec{op = ?CEC_SET_STREAM_PATH,
 handle_info({_, #cec{src = Src,
                      op = ?CEC_ROUTING_CHANGE,
                      params = <<From:2/binary,To:2/binary>>}},
-            #state{laddr = Laddr, devs = Devs, subs = Subs} = State) ->
+            #state{laddr = Laddr, devs = Devs, handlers = Hs} = State) ->
     case paddr(Laddr, Devs) of
         To ->
             %% FIXME: why doesn't this activate the adapter when the TV starts?
-            _ = [handle_activate(X) || X <- Subs],
+            _ = [handle_activate(X) || X <- Hs],
             handle_broadcast(State, ?CEC_ACTIVE_SOURCE, To),
             handle_send(State, Src, ?CEC_TEXT_VIEW_ON, <<>>),
             handle_send(State, Src, ?CEC_MENU_STATUS, <<0>>);
@@ -308,9 +307,9 @@ handle_info({_, #cec{}} = M, State) ->
 handle_info({'EXIT',H,Reason}, #state{adpt = H} = State) ->
     error_msg("adapter ~w died (~p), closing down for today~n", [H, Reason]),
     {stop,Reason,State};
-handle_info({'EXIT',Pid,Reason}, #state{subs = Subs} = State) ->
-    info_msg("subscriber ~w died (~p), removing~n", [Pid, Reason]),
-    {noreply,State#state{subs = Subs -- [Pid]}};
+handle_info({'EXIT',Pid,Reason}, #state{handlers = Hs} = State) ->
+    info_msg("handler ~w died (~p), removing~n", [Pid, Reason]),
+    {noreply,State#state{handlers = Hs -- [Pid]}};
 handle_info(M, State) ->
     warning_msg("unknown message: ~w~n", [M]),
     {noreply,State}.

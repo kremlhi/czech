@@ -1,4 +1,4 @@
--module(subscribers_SUITE).
+-module(handlers_SUITE).
 -compile(export_all).
 -include("czech.hrl").
 
@@ -7,8 +7,8 @@ all() ->
 
 init_per_testcase(_Tc, Config) ->
     {ok,_Pid} = czech:start_link(null),
-    czech:subscribe(self()),
-    ct:log("czech state: ~p", [sys:get_state(czech)]),
+    czech:add_handler(self()),
+    ct:pal("czech state: ~p", [sys:get_state(czech)]),
     Config.
 
 end_per_testcase(_Tc, _Config) ->
@@ -25,14 +25,14 @@ keypress_up(_Config) ->
                          params = <<>>}},
     receive
         {keypress,_Pid,up} = M ->
-            ct:log("got message: ~w", [M]),
+            ct:pal("got message: ~w", [M]),
             ok
         after 1000 ->
             ct:fail("message not received")
     end,
     receive
         {keyrel,_Pid2} = M2 ->
-            ct:log("got message: ~w", [M2]),
+            ct:pal("got message: ~w", [M2]),
             ok
         after 1000 ->
             ct:fail("message not received")
@@ -45,7 +45,7 @@ activate(_Config) ->
                          params = <<0,0,0,1>>}},
     receive
         {activate,_Pid} = M ->
-            ct:log("got message: ~w", [M]),
+            ct:pal("got message: ~w", [M]),
             ok
         after 1000 ->
             ct:fail("message not received")
@@ -58,7 +58,7 @@ change_volume(_Config) ->
                          params = <<1:1,55:7>>}},
     receive
         {volume,_Pid,true,55} = M ->
-            ct:log("got message: ~w", [M]),
+            ct:pal("got message: ~w", [M]),
             ok
         after 1000 ->
             ct:fail("message not received")

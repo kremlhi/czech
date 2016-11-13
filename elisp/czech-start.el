@@ -60,15 +60,15 @@
       ((['rex ['ok lst]] t)
        (['rex resp]
         (error "unexpected response2: %s" resp)))
-    (&czech-subscribe node)))
+    (&czech-add-handler node)))
 
-(defun &czech-subscribe (node)
-  (message "subscribe %s" node)
-  (erl-send-rpc node 'czech 'subscribe (list erl-self))
+(defun &czech-add-handler (node)
+  (message "add handler %s" node)
+  (erl-send-rpc node 'czech 'add_handler (list erl-self))
   (erl-receive (node)
       ((['rex ['ok from]]
         (erl-dist-link from)
-        (message "subscribe done %s" from))
+        (message "handler added %s" from))
        (['rex resp]
         (error "unexpected response3: %s" resp)))
     (&czech-loop node)))
@@ -88,7 +88,7 @@
        (['EXIT from reason]
         (message "oshit %s died: %s @%s" from reason node)
         ;(sit-for 2)
-        (&czech-subscribe node))
+        (&czech-add-handler node))
        (other (message "cecmsg %S" other)))
     (&czech-loop node)))
 
