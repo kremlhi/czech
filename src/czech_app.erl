@@ -11,6 +11,7 @@
 
 start() -> start([]).
 
+-spec start(term()) -> {ok,[atom()]} | {error,{atom(),term()}}.
 start(_) ->
     application:load(?APP),
     application:ensure_all_started(?APP).

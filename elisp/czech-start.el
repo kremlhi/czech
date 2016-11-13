@@ -50,16 +50,16 @@
   (erl-receive (node)
       ((['rex 'true] t)
        (['rex resp]
-        (error "unexpected response: %s" resp)))
+        (error "unexpected response1: %s" resp)))
     (&czech-start-app node)))
 
 (defun &czech-start-app (node)
   (message "start app czech")
   (erl-send-rpc node 'czech_app 'start ())
   (erl-receive (node)
-      ((['rex 'ok] t)
+      ((['rex ['ok lst]] t)
        (['rex resp]
-        (error "unexpected response: %s" resp)))
+        (error "unexpected response2: %s" resp)))
     (&czech-subscribe node)))
 
 (defun &czech-subscribe (node)
@@ -70,15 +70,15 @@
         (erl-dist-link from)
         (message "subscribe done %s" from))
        (['rex resp]
-        (error "unexpected response: %s" resp)))
+        (error "unexpected response3: %s" resp)))
     (&czech-loop node)))
 
 (defun &czech-loop (node)
   (erl-receive (node)
       ((['keypress from key]
-        (ignore-errors ;don't care about stuff throwing errors
+        ;(ignore-errors ;don't care about stuff throwing errors
           (if czech-idle (czech-handle-activate)
-            (czech-handle-keypress key))))
+            (czech-handle-keypress key))) ;)
        (['keyrel from]
         (czech-handle-keyrel))
        (['volume from mute vol]
@@ -87,7 +87,7 @@
         (czech-handle-activate))
        (['EXIT from reason]
         (message "oshit %s died: %s @%s" from reason node)
-        (sit-for 2)
+        ;(sit-for 2)
         (&czech-subscribe node))
        (other (message "cecmsg %S" other)))
     (&czech-loop node)))
@@ -98,7 +98,8 @@
   (message "volume %s%%%s" vol
            (if (eq mute 'true) " [mute]" "")))
 
-;; czech ! {self(),{cec,[],0,0,68,[<<68>>]}}.
+;; czech ! {self(),{cec,[],0,8,68,<<68>>}} to receive a keypress play, or
+;; czech:send(0, 68, <<68>>) to send one.
 (defun czech-handle-keypress (key)
   (with-selected-window (selected-window)
     (unless (buffer-live-p emms-playlist-buffer)

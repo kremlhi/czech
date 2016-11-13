@@ -78,6 +78,10 @@ init_port(ExtPrg, Dev) ->
     erlang:send_after(0, self(), ping),
     S.
 
+-spec handle_call(term(), From, state()) ->
+                  {reply,Reply,state()}
+      when From :: {pid(),reference()},
+           Reply :: ok | {ok,term()} | {error,term()}.
 handle_call({controlling_process,Ncpid}, {Pid,_},
             #state{ctlproc = Ocpid} = State) ->
     if Pid /= Ocpid ->
@@ -131,7 +135,7 @@ handle_call({get_paddr}, _, #state{fd = S} = State) ->
     Resp = handle_cmd_get(S, State, Req),
     {reply,Resp,State};
 handle_call({get_vendor}, _, State) ->
-    Resp = <<0,21,130>>, %pulse-eight
+    Resp = {ok,<<0,21,130>>}, %pulse-eight
     {reply,Resp,State};
 handle_call({set_controlled,Mode}, _, #state{fd = S} = State) ->
     Req = {cmd_set,?P8_CMD_SET_CONTROLLED,<<Mode>>},
