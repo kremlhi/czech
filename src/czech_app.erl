@@ -13,11 +13,7 @@ start() -> start([]).
 
 start(_) ->
     application:load(?APP),
-    case application:ensure_all_started(?APP) of
-        {ok,_}                  -> ok;
-        {error,already_started} -> ok;
-        {error,Reason}          -> {error,Reason}
-    end.
+    application:ensure_all_started(?APP).
 
 stop() ->
     application:stop(?APP).

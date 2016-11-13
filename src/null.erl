@@ -20,22 +20,22 @@ send(_H, _Flags, _Src, _Dest, _Op, _Params) ->
     ok.
 
 get_adapter_type(_H) ->
-    ?DEV_PLAYBDEV.
+    {ok,?DEV_PLAYBDEV}.
 
 get_builddate(_H) ->
-    1478988990.
+    {ok,1478988990}.
 
 get_firmware_vsn(_H) ->
-    3.
+    {ok,3}.
 
 get_hdmi_vsn(_H) ->
-    ?CEC_VSN_1_4.
+    {ok,?CEC_VSN_1_4}.
 
 get_paddr(_H) ->
-    <<0,1>>. % 0.0.0.1
+    {ok,<<0,1>>}. % 0.0.0.1
 
 get_vendor(_H) ->
-    <<0,21,130>>. %pulse-eight
+    {ok,<<0,21,130>>}. %pulse-eight
 
 set_ack_mask(_H, _, _) ->
     ok.

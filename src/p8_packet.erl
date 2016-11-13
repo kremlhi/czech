@@ -19,15 +19,14 @@ encode(L) ->
 decode(B) ->
     decode(B, [], <<>>).
 
--spec ack_ops(cmd_tx()) -> [byte()].
+-spec ack_ops(cmd_tx()) -> [rflag() | rcmd_tx()].
 ack_ops(#cmd_tx{flags = Flags, op = Op, params = Params}) ->
     F = [cmd_tx_flag(X) || {X,_} <- Flags],
-    O = [?P8_CMD_TX || X <- [Op], X =/= undefined],
+    O = [?P8_CMD_TX || X <- [Op], X /= undefined],
     P = [?P8_CMD_TX || <<_>> <= Params],
     S = [?P8_CMD_TX_EOM], %src/dest is mandatory
     F ++ O ++ P ++ S.
 
--spec cmd_tx_flag(atom()) -> byte().
 cmd_tx_flag(X) ->
     case X of
         idle    -> ?P8_CMD_TX_SET_IDLE;
@@ -35,8 +34,7 @@ cmd_tx_flag(X) ->
         timeout -> ?P8_CMD_TX_SET_TIMEOUT
     end.
 
-
--spec encode1(packet()) -> {<<_:32,_:_*8>>,binary()}.
+-spec encode1(packet()) -> binary().
 encode1(R) ->
     case R of
         #cmd{op = Op, param = Param} ->
@@ -157,7 +155,9 @@ decode(B, Acc, Inc) ->
     end.
 
 
--spec decode1(<<_:32,_:_*8>>) -> {cmd() | cmd_tx() | ind_rx(),binary()}.
+-spec decode1(<<_:32,_:_*8>>) ->
+                     {cmd() | cmd_tx() | ind_rx(),binary()} |
+                     incomplete.
 decode1(<<?BEG,_:2,X:6,_/binary>> = B) ->
     if X =:= ?P8_IND_ERR_TIMEOUT;
        X =:= ?P8_IND_ERR_HIGH;
@@ -277,7 +277,7 @@ cmd_tx_dec_end(Rest, #cmd_tx{flags = Flags} = R) ->
     {R#cmd_tx{flags = lists:reverse(Flags)},Rest}.
 
 
--spec ind_rx_decode(<<_:32,_:_*8>>) -> {ind_rx(),binary()}.
+-spec ind_rx_decode(<<_:32,_:_*8>>) -> {ind_rx(),binary()} | incomplete.
 
 ind_rx_decode(<<?BEG,Eom:1,Ack:1,
                 ?P8_IND_RX_START:6,Src:4,Dest:4,

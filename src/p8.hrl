@@ -1,23 +1,26 @@
 -record(cmd, {op :: 0..63,
               param = <<>> :: binary()}).
--record(cmd_tx, {flags = [] :: [binary()],
-                 src :: 0..15,
-                 dest :: 0..15,
-                 op :: byte(),
+-record(cmd_tx, {flags = [] :: [flag()],
+                 src :: 0..15 | 'undefined',
+                 dest :: 0..15 | 'undefined',
+                 op :: byte() | 'undefined',
                  params = <<>> :: binary()}).
 -record(ind_ack, {ack :: ok | nack,
                   op :: 0..63}).
 -record(ind_err, {type :: timeout | high | low,
-                  line :: integer(),
-                  time :: integer()}).
+                  line :: 0..16#ffff | 'undefined',
+                  time :: 0..16#ffff | 'undefined'}).
 -record(ind_tx_ack, {ack :: ok |
                             tx_nack | fail_line | timeout_d | timeout_l}).
--record(ind_rx, {ack :: 0 | 1,
+-record(ind_rx, {ack :: bint(),
                  src :: 0..15,
                  dest :: 0..15,
-                 op :: byte(),
+                 op :: byte() | 'undefined',
                  params = <<>> :: binary()}).
 
+-type bint() :: 0 | 1.
+-type timeval() :: byte().
+-type flag() :: {idle | timeout,timeval()} | {ack_p,bint()}.
 -type cmd() :: #cmd{}.
 -type cmd_tx() :: #cmd_tx{}.
 -type ind_ack() :: #ind_ack{}.
@@ -27,7 +30,6 @@
 
 -type packet() :: cmd() | cmd_tx() |
                   ind_ack() | ind_tx_ack() | ind_err() | ind_rx().
-
 
 -define(BEG, 16#ff).
 -define(END, 16#fe).
@@ -82,6 +84,11 @@
 -define(P8_CMD_GET_ADAPTER_TYPE, 40).
 -define(P8_CMD_SET_ACTIVE_SOURCE, 41).
 
-
 -define(P8_FRAME_ACK, 16#40).
 -define(P8_FRAME_EOM, 16#80).
+
+-type rflag() :: ?P8_CMD_TX_SET_IDLE |
+                 ?P8_CMD_TX_SET_ACK_P |
+                 ?P8_CMD_TX_SET_TIMEOUT.
+
+-type rcmd_tx() :: ?P8_CMD_TX | ?P8_CMD_TX_EOM.

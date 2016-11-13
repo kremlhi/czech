@@ -1,14 +1,15 @@
 -module(p8).
+-behaviour(czech).
 -behaviour(gen_server).
 
-%% TODO: add mandatory callbacks as -callback
-
+%% czech callbacks
 -export([open/0, close/1, controlling_process/2]).
--export([send/4, send/5, send/6]).
+-export([send/4, send/6]).
 -export([get_adapter_type/1, get_builddate/1, get_firmware_vsn/1,
-         get_paddr/1, get_hdmi_vsn/1, get_vendor/1]).
+         get_hdmi_vsn/1, get_paddr/1, get_vendor/1]).
 -export([set_ack_mask/3, set_controlled/2]).
 
+%% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          code_change/3, terminate/2]).
 
@@ -24,12 +25,12 @@
                 timeout = 1000 :: integer() | infinity,
                 ctlproc = []   :: pid(),
                 recvbuf = <<>> :: binary(),
-                pretty         :: fun()}).
+                pretty         :: fun() | 'undefined'}).
 
 -type state() :: #state{}.
 
 %%====================================================================
-%% API
+%% czech callbacks
 %%====================================================================
 
 open()   -> gen_server:start_link(?MODULE, [self()], []).
@@ -40,9 +41,6 @@ controlling_process(H, Cpid) ->
 
 send(H, Flags, Src, Dest) ->
     gen_server:call(H, {send,Flags,Src,Dest,undefined,<<>>}).
-
-send(H, Flags, Src, Dest, Op) ->
-    gen_server:call(H, {send,Flags,Src,Dest,Op,<<>>}).
 
 send(H, Flags, Src, Dest, Op, Params) ->
     gen_server:call(H, {send,Flags,Src,Dest,Op,Params}).
@@ -90,59 +88,59 @@ handle_call({controlling_process,Ncpid}, {Pid,_},
             {reply,ok,State#state{ctlproc = Ncpid}}
     end;
 handle_call({send,Flags,Src,Dest,Op,Params}, _, #state{fd = S} = State) ->
-    Res = handle_send(S, State, {cec,Flags,Src,Dest,Op,Params}),
-    {reply,Res,State};
+    Resp = handle_send(S, State, {cec,Flags,Src,Dest,Op,Params}),
+    {reply,Resp,State};
 handle_call({get_adapter_type}, _, #state{fd = S} = State) ->
     Req = {cmd_get,?P8_CMD_GET_ADAPTER_TYPE},
-    R = case handle_cmd_get(S, State, Req) of
-            <<Type>> ->
-                Type;
-            {error,Reason} ->
-                {error,Reason}
-        end,
-    {reply,R,State};
+    Resp = case handle_cmd_get(S, State, Req) of
+               {ok,<<Type>>} ->
+                   {ok,Type};
+               {error,Reason} ->
+                   {error,Reason}
+           end,
+    {reply,Resp,State};
 handle_call({get_builddate}, _, #state{fd = S} = State) ->
     Req = {cmd_get,?P8_CMD_GET_BUILDDATE},
-    R = case handle_cmd_get(S, State, Req) of
-        <<Date:32>> ->
-                Date;
-        {error,Reason} ->
-                {error,Reason}
-        end,
-    {reply,R,State};
+    Resp = case handle_cmd_get(S, State, Req) of
+               {ok,<<Date:32>>} ->
+                   {ok,Date};
+               {error,Reason} ->
+                   {error,Reason}
+           end,
+    {reply,Resp,State};
 handle_call({get_firmware_vsn}, _, #state{fd = S} = State) ->
     Req = {cmd_get,?P8_CMD_FIRMWARE_VSN},
-    R = case handle_cmd_get(S, State, Req) of
-            <<Vsn:16>> ->
-                Vsn;
-            {error,Reason} ->
-                {error,Reason}
-        end,
-    {reply,R,State};
-handle_call({get_paddr}, _, #state{fd = S} = State) ->
-    Req = {cmd_get,?P8_CMD_GET_PADDR},
-    R = handle_cmd_get(S, State, Req),
-    {reply,R,State};
+    Resp = case handle_cmd_get(S, State, Req) of
+               {ok,<<Vsn:16>>} ->
+                   {ok,Vsn};
+               {error,Reason} ->
+                   {error,Reason}
+           end,
+    {reply,Resp,State};
 handle_call({get_hdmi_vsn}, _, #state{fd = S} = State) ->
     Req = {cmd_get,?P8_CMD_GET_HDMI_VSN},
-    R = case handle_cmd_get(S, State, Req) of
-            <<Vsn>> ->
-                Vsn;
-            {error,Reason} ->
-                {error,Reason}
-        end,
-    {reply,R,State};
+    Resp = case handle_cmd_get(S, State, Req) of
+               {ok,<<Vsn>>} ->
+                   {ok,Vsn};
+               {error,Reason} ->
+                   {error,Reason}
+           end,
+    {reply,Resp,State};
+handle_call({get_paddr}, _, #state{fd = S} = State) ->
+    Req = {cmd_get,?P8_CMD_GET_PADDR},
+    Resp = handle_cmd_get(S, State, Req),
+    {reply,Resp,State};
 handle_call({get_vendor}, _, State) ->
-    R = <<0,21,130>>, %pulse-eight
-    {reply,R,State};
+    Resp = <<0,21,130>>, %pulse-eight
+    {reply,Resp,State};
 handle_call({set_controlled,Mode}, _, #state{fd = S} = State) ->
     Req = {cmd_set,?P8_CMD_SET_CONTROLLED,<<Mode>>},
-    R = handle_cmd_set(S, State, Req),
-    {reply,R,State};
+    Resp = handle_cmd_set(S, State, Req),
+    {reply,Resp,State};
 handle_call({set_ack_mask,X,Y}, _, #state{fd = S} = State) ->
     Req = {cmd_set,?P8_CMD_SET_ACK_MASK,<<X,Y>>},
-    R = handle_cmd_set(S, State, Req),
-    {reply,R,State}.
+    Resp = handle_cmd_set(S, State, Req),
+    {reply,Resp,State}.
 
 -spec handle_cast(_,state()) -> {'noreply',state()}.
 handle_cast(_Req, State) ->
@@ -247,7 +245,7 @@ handle_cmd(S, State, {cmd,Op}) ->
 handle_cmd_get(S, State, {cmd_get,Key}) ->
     case request(S, State, #cmd{op = Key}) of
         [#cmd{op = Key, param = V}] ->
-            V;
+            {ok,V};
         {error,Reason} ->
             {error,Reason}
     end.
@@ -288,6 +286,7 @@ recv_response(S, State) ->
     end.
 
 do_recv(S, #state{timeout = T}, _Len) ->
+    %% FIXME: this is truly ugly
     receive
         {S, {data,<<?BEG,_:2,X:6,_/binary>> = B}}
           when X =/= ?P8_IND_RX_START, %skip #ind_rx{}

@@ -47,7 +47,7 @@ print(Prefix, L) ->
     _ = [io:format("~s~s~n",[Prefix, X]) || X <- pretty(L)],
     ok.
 
--spec codetostr(integer()) -> nonempty_string().
+-spec codetostr(byte()) -> nonempty_string().
 codetostr(Code) ->
     case Code of
         ?mwhen(P8_CMD_NONE);
@@ -98,7 +98,7 @@ codetostr(Code) ->
         _ -> "UNKNOWN(" ++ integer_to_list(Code) ++ ")"
     end.
 
--spec scecop(integer()) -> nonempty_string().
+-spec scecop(byte()) -> nonempty_string().
 scecop(Op) ->
     case Op of
         ?mwhen(CEC_ACTIVE_SOURCE);
@@ -197,36 +197,4 @@ laddr(X, Dir) ->
         ?mwhen2(LADDR_UNREG, Dir =:= src);
         ?mwhen2(LADDR_BROADCAST, Dir =:= dest);
         _ -> "UNKNOWN("++integer_to_list(X)++")"
-    end.
-
--spec vendor(integer()) -> nonempty_string().
-vendor(Id) ->
-    case Id of
-        16#000039 -> "TOSHIBA";
-        16#0000F0 -> "SAMSUNG";
-        16#0005CD -> "DENON";
-        16#000678 -> "MARANTZ";
-        16#000982 -> "LOEWE";
-        16#0009B0 -> "ONKYO";
-        16#000CB8 -> "MEDION";
-        16#000CE7 -> "TOSHIBA2";
-        16#001582 -> "PULSE EIGHT";
-        16#001950 -> "HARMAN KARDON2";
-        16#001A11 -> "GOOGLE";
-        16#0020C7 -> "AKAI";
-        16#002467 -> "AOC";
-        16#008045 -> "PANASONIC";
-        16#00903E -> "PHILIPS";
-        16#009053 -> "DAEWOO";
-        16#00A0DE -> "YAMAHA";
-        16#00D0D5 -> "GRUNDIG";
-        16#00E036 -> "PIONEER";
-        16#00E091 -> "LG";
-        16#08001F -> "SHARP";
-        16#080046 -> "SONY";
-        16#18C086 -> "BROADCOM";
-        16#6B746D -> "VIZIO";
-        16#8065E9 -> "BENQ";
-        16#9C645E -> "HARMAN KARDON";
-        _ -> "UNKNOWN(0x"++integer_to_list(Id,16)++")"
     end.

@@ -4,7 +4,7 @@
 -export([start_link/1, start_link/2, stop/0,
          subscribe/1, send/3, broadcast/2]).
 
-%% Callbacks
+%% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          code_change/3, terminate/2]).
 
@@ -16,36 +16,42 @@
 
 -record(state, {subs   = []           :: [pid()],
                 mod                   :: module(),
-                adpt                  :: pid(),
-                active                :: paddr(),
+                adpt                  :: pid() | 'undefined',
+                active                :: paddr() | 'undefined',
                 laddr  = ?LADDR_UNREG :: laddr(),
-                devs   = []           :: [dev()]}).
+                devs   = []           :: [dev()] | [olddev()]}).
 
 -type state() :: #state{}.
+-type oldstate() :: tuple().
 
--record(dev, {laddr   :: src(),
-              paddr   :: paddr(),
-              vendor  :: binary(),
-              osdname :: binary(),
-              devtype :: devtype(),
-              cecvsn  :: cecvsn()}).
-
+-record(dev, {laddr   :: src() | 'undefined',
+              paddr   :: paddr() | 'undefined',
+              vendor  :: vendor() | 'undefined',
+              osdname :: binary() | 'undefined',
+              devtype :: devtype() | 'undefined',
+              cecvsn  :: cecvsn() | 'undefined'}).
 
 -type dev() :: #dev{}.
+-type olddev() :: tuple().
 
--type paddr()   :: <<_:2>>. % n.n.n.n
+-type paddr()   :: <<_:16>>. % n.n.n.n
 -type laddr()   :: 0..14.
 -type src()     :: laddr() | ?LADDR_UNREG.
 -type dest()    :: laddr() | ?LADDR_BROADCAST.
 -type devtype() :: ?DEV_TV | ?DEV_RECDEV | ?DEV_TUNER
                  | ?DEV_PLAYBDEV | ?DEV_AUDIOSYS.
+-type pbdev()   :: ?LADDR_PLAYBDEV1 | ?LADDR_PLAYBDEV2 | ?LADDR_PLAYBDEV3.
 -type cecvsn()  :: ?CEC_VSN_1_1 | ?CEC_VSN_1_2  | ?CEC_VSN_1_2A
                  | ?CEC_VSN_1_3 | ?CEC_VSN_1_3A | ?CEC_VSN_1_4.
 
+-type builddate() :: 0..16#ffffffff.
+-type fwvsn()     :: 0..16#ffff.
+-type vendor()    :: <<_:24>>.
+
 -type bint()    :: 0 | 1.
--type timeval() :: 0..255.
--type flag()    :: {idle,timeval()} | {timeout,timeval()} | {ack_p,bint()}.
--type op()      :: 0..255.
+-type timeval() :: 0..16#ff.
+-type flag()    :: {idle | timeout,timeval()} | {ack_p,bint()}.
+-type op()      :: 0..16#ff.
 -type params()  :: binary().
 
 -type cec() :: #cec{}.
@@ -53,6 +59,33 @@
 %%====================================================================
 %% API
 %%====================================================================
+
+-callback open() ->
+    {ok,pid()} | {error,term()}.
+-callback close(pid()) ->
+    ok.
+-callback controlling_process(pid(), pid()) ->
+    ok | {error,not_owner}.
+-callback send(pid(), [flag()], src(), dest()) ->
+    ok | {error,term()}.
+-callback send(pid(), [flag()], src(), dest(), op(), params()) ->
+    ok | {error,term()}.
+-callback get_adapter_type(pid()) ->
+    {ok,devtype()} | {error,term()}.
+-callback get_builddate(pid()) ->
+    {ok,builddate()} | {error,term()}.
+-callback get_firmware_vsn(pid()) ->
+    {ok,fwvsn()} | {error,term()}.
+-callback get_hdmi_vsn(pid()) ->
+    {ok,cecvsn()} | {error,term()}.
+-callback get_paddr(pid()) ->
+    {ok,paddr()} | {error,term()}.
+-callback get_vendor(pid()) ->
+    {ok,vendor()} | {error,term()}.
+-callback set_ack_mask(pid(), bint(), bint()) ->
+    ok | {error,term()}.
+-callback set_controlled(pid(), bint()) ->
+    ok | {error,term()}.
 
 start_link(Mod) ->
     start_link(Mod, []).
@@ -82,28 +115,29 @@ init([Mod | _Opts]) ->
     end.
 
 init_adpt(#state{mod = Mod, adpt = H} = State) ->
-    ok      = check_adapter(State),
-    Devtype = Mod:get_adapter_type(H),
-    Vendor  = Mod:get_vendor(H),
-    ok      = set_idle(State, ?LADDR_UNREG, ?LADDR_TV, 3),
-    Laddr   = set_laddr(State),
-    Paddr   = Mod:get_paddr(H),
-    Vsn     = Mod:get_hdmi_vsn(H),
-    ok      = Mod:set_ack_mask(H, 1, 0),
-    Dev     = #dev{laddr   = Laddr,
-                   paddr   = Paddr,
-                   vendor  = Vendor,
-                   osdname = list_to_binary(?MODULE_STRING),
-                   devtype = Devtype,
-                   cecvsn  = Vsn},
+    ok           = check_adapter(State),
+    {ok,Devtype} = Mod:get_adapter_type(H),
+    {ok,Vendor}  = Mod:get_vendor(H),
+    ok           = set_idle(State, ?LADDR_UNREG, ?LADDR_TV, 3),
+    {ok,Laddr}   = set_laddr(State),
+    {ok,Paddr}   = Mod:get_paddr(H),
+    {ok,Vsn}     = Mod:get_hdmi_vsn(H),
+    ok           = Mod:set_ack_mask(H, 1, 0),
+    Dev          = #dev{laddr   = Laddr,
+                        paddr   = Paddr,
+                        vendor  = Vendor,
+                        osdname = list_to_binary(?MODULE_STRING),
+                        devtype = Devtype,
+                        cecvsn  = Vsn},
     State#state{laddr = Laddr,
                 devs  = [Dev]}.
 
 check_adapter(#state{mod = Mod, adpt = H}) ->
-    FwVsn = Mod:get_firmware_vsn(H),
-    true = FwVsn > 2,
-    ok = Mod:set_controlled(H, 1),
-    true = Mod:get_builddate(H) > 0,
+    {ok,FwVsn} = Mod:get_firmware_vsn(H),
+    true       = FwVsn > 2,
+    {ok,Bdate} = Mod:get_builddate(H),
+    true       = Bdate > 0,
+    ok         = Mod:set_controlled(H, 1),
     ok.
 
 handle_call({subscribe,Pid}, _, #state{subs = Subs} = State) ->
@@ -118,7 +152,6 @@ handle_call({broadcast,Op,Params}, _, State) ->
     Reply = handle_broadcast(State, Op, Params),
     {reply,Reply,State}.
 
--spec handle_cast(_,state()) -> {'noreply',state()}.
 handle_cast(_, State) ->
     {noreply,State}.
 
@@ -277,13 +310,14 @@ handle_info(M, State) ->
     warning_msg("unknown message: ~w~n", [M]),
     {noreply,State}.
 
--spec code_change(_,_,_) -> {'ok',_}.
-code_change(_OldVsn, #state{devs = Devs} = State, _Extra) ->
+-spec code_change(term(), state() | oldstate(), term()) -> {'ok',state()}.
+code_change(_OldVsn, State, _Extra) ->
+    State2 = upgrade_state(State),
+    #state{devs = Devs} = State2,
     Devs2 = [upgrade_devs(X) || X <- Devs],
-    State2 = upgrade_state(State#state{devs = Devs2}),
-    {ok,State2}.
+    {ok,State2#state{devs = Devs2}}.
 
--spec terminate(any(),state()) -> no_return().
+-spec terminate(term(),state()) -> no_return().
 terminate(Reason, #state{mod   = Mod,
                          adpt  = H,
                          laddr = Laddr,
@@ -299,37 +333,46 @@ terminate(Reason, #state{mod   = Mod,
 %% Internal functions
 %%====================================================================
 
--spec polling_message(state(), laddr()) -> 'ok'.
+-spec polling_message(state(), laddr()) -> ok | {error,term()}.
 polling_message(#state{mod = Mod, adpt = H}, Laddr) ->
     Mod:send(H, [], Laddr, Laddr).
 
--spec set_idle(state(), src(), dest(), integer()) -> 'ok'.
+-spec set_idle(state(), src(), dest(), timeval()) -> ok | {error,term()}.
 set_idle(#state{mod = Mod, adpt = H}, Src, Dest, Time) ->
     Mod:send(H, [{idle,Time}], Src, Dest).
 
--spec handle_broadcast(state(), integer(), [binary()]) ->
-                              'ok' | {'error',any()}.
+-spec handle_broadcast(state(), op(), params()) ->
+                              'ok' | {'error',term()}.
 handle_broadcast(#state{mod = Mod, adpt = H, laddr = Src}, Op, Params) ->
     Mod:send(H, [{ack_p,1}], Src, ?LADDR_BROADCAST, Op, Params).
 
--spec handle_send(state(), dest(), integer(), [binary()]) ->
-                         'ok' | {'error',any()}.
+-spec handle_send(state(), dest(), op(), params()) ->
+                         ok | {error,term()}.
 handle_send(#state{mod = Mod, adpt = H, laddr = Src}, Dest, Op, Params) ->
     Mod:send(H, [{ack_p,0}], Src, Dest, Op, Params).
 
--spec set_laddr(state()) -> laddr().
+-spec set_laddr(state()) -> {ok,pbdev()} | {error,term()}.
 set_laddr(State) ->
     L = [?LADDR_PLAYBDEV1,
          ?LADDR_PLAYBDEV2,
          ?LADDR_PLAYBDEV3],
     set_laddr(State, L).
 
+set_laddr(_, []) ->
+    {error,no_addr_avail};
 set_laddr(State, [Laddr | T]) ->
     case polling_message(State, Laddr) of
-        ok -> set_laddr(State, T);
         {error,tx_nack} ->
-            {error,tx_nack} = polling_message(State, Laddr),
-            Laddr
+            case polling_message(State, Laddr) of
+                {error,tx_nack} ->
+                    {ok,Laddr};
+                _ ->
+                    {error,strange}
+            end;
+        ok ->
+            set_laddr(State, T);
+        {error,Reason} ->
+            {error,Reason}
     end.
 
 paddr(Laddr, Devs) ->
