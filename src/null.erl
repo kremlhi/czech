@@ -2,10 +2,10 @@
 -compile(export_all).
 -include("czech.hrl").
 
-open() ->
+open(_Opts) ->
     {ok,?MODULE}.
 
-close(H) ->
+close(_H) ->
     ok.
 
 controlling_process(_H, _Cpid) ->

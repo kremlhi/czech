@@ -62,8 +62,6 @@
 %% API
 %%====================================================================
 
--callback open() ->
-    {ok,pid()} | {error,term()}.
 -callback open(Opts :: list()) ->
     {ok,pid()} | {error,term()}.
 -callback close(pid()) ->
@@ -90,7 +88,6 @@
     ok | {error,term()}.
 -callback set_controlled(pid(), bint()) ->
     ok | {error,term()}.
--optional_callbacks([open/1]).
 
 start_link(Mod) ->
     start_link(Mod, []).
@@ -110,7 +107,7 @@ broadcast(Op, Params)  -> gen_server:call(?SERVER, {broadcast,Op,Params}).
 
 init([Mod | _Opts]) ->
     process_flag(trap_exit, true),
-    case Mod:open() of
+    case Mod:open([]) of
         {ok,H} ->
             State = init_adpt(#state{mod=Mod, adpt=H}),
             handle_broadcast(State, ?CEC_REQUEST_ACTIVE_SOURCE, <<>>),

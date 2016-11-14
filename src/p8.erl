@@ -3,7 +3,7 @@
 -behaviour(gen_server).
 
 %% czech callbacks
--export([open/0, open/1, close/1, controlling_process/2]).
+-export([open/1, close/1, controlling_process/2]).
 -export([send/4, send/6]).
 -export([get_adapter_type/1, get_builddate/1, get_firmware_vsn/1,
          get_hdmi_vsn/1, get_paddr/1, get_vendor/1]).
@@ -33,7 +33,6 @@
 %% czech callbacks
 %%====================================================================
 
-open()     -> open([]).
 open(Opts) -> gen_server:start_link(?MODULE, [self() | Opts], []).
 close(H)   -> gen_server:stop(H).
 
