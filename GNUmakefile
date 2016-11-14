@@ -46,6 +46,6 @@ clean:
 
 # p8 depends on czech, b/c -behaviour(czech).
 src/p8.erl: ebin/czech.beam
-#-include $(PBEAM)
+-include $(PBEAM)
 
 .PHONY: test
