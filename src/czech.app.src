@@ -4,6 +4,5 @@
     {applications, [kernel, stdlib, sasl]},
     {modules, []},
     {registered, []},
-        {mod, {czech_app, []}},
-    {env, []}
-    ]}.
+    {mod, {czech_app, []}},
+    {env, []}]}.
