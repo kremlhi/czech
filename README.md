@@ -39,7 +39,7 @@ Start a erlang shell and ping it to let distel connect to the new node:
 M-x erlang-shell
 M-x erl-ping emacs
 ```
-If this doesn't trigger the `erl-node-hook` in elisp/czech-start.el then:
+Start a czech handler in Emacs:
 ```
 M-x czech-start
 ```
